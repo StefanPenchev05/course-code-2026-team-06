@@ -1,6 +1,6 @@
 # course-code-2026-team-06
 
-Semester project for Team 5 | Software Engineering (2026). Focused on Agile planning, requirements engineering, and software development.
+Semester project for Team 6 | Software Engineering (2026). Focused on Agile planning, requirements engineering, and software development.
 
 ## Project Overview
 - Project name: course-code-2026-team-06
