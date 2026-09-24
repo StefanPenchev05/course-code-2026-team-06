@@ -9,8 +9,15 @@ Semester project for Team 6 | Software Engineering (2026). Focused on Agile plan
 - Project board: https://github.com/users/StefanPenchev05/projects/11
 - Project status: In progress
 - Project goal: Create a peer tutoring platform that connects students who need academic help with students who can provide support, while helping coordinators manage participation and course coverage.
-- Main technologies: Backend - Golang; Frontend - React with TypeScript; Database - PostgreSQL; Cache/Session store - Redis
 - Project timeline: Winter Semester 2026
+
+## Tech Stack
+- Backend: Golang, C
+- Frontend: React with TypeScript
+- Database: PostgreSQL
+- Cache / Session Store: Redis
+- Containerization: Docker
+- CI/CD: GitHub Actions
 
 ## Team Members
 | Name | Role | GitHub | Contributions |
@@ -19,7 +26,7 @@ Semester project for Team 6 | Software Engineering (2026). Focused on Agile plan
 | Anastasiia Shkamerda | Frontend + UX & UI | https://github.com/anstashka | Design consistency, user experience improvements, and front-end development |
 | Nikita Tronciu | Database | https://github.com/nikitatronciu001-code | Data modeling, schema design, and persistence layer support |
 | Yanislav Velikov | Backend | https://github.com/yani0514 | Backend logic, API development, integration work, and support across the stack |
-| Stefan Penchev | Backend | https://github.com/StefanPenchev05 | Project coordination, backend/frontend implementation, and system integration |
+| Stefan Penchev | Backend + CI/CD + Containerization | https://github.com/StefanPenchev05 | Project coordination, backend/frontend implementation, CI/CD setup, Docker/containerization, and system integration |
 
 
 <!-- ## Project Details
