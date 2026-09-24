@@ -3,47 +3,48 @@
 Semester project for Team 6 | Software Engineering (2026). Focused on Agile planning, requirements engineering, and software development.
 
 ## Project Overview
-- Project name: course-code-2026-team-06
+- Project name: Peer Tutoring Platform
 - Course: Software Engineering (2026)
 - Team: Team 6
 - Project board: https://github.com/users/StefanPenchev05/projects/11
 - Project status: In progress
-- Project goal: Develop and deliver a functional software project using Agile planning, requirements engineering, and collaborative development practices.
-- Main technologies: [Add technologies used]
-- Project timeline: [Add start date] to [Add end date]
+- Project goal: Create a peer tutoring platform that connects students who need academic help with students who can provide support, while helping coordinators manage participation and course coverage.
+- Main technologies: Full-stack web application, responsive UI, database-driven backend, and Agile project management workflow
+- Project timeline: Semester 2026
 
 ## Project Manager
-- Project Manager: [Name]
-- GitHub: [GitHub profile URL]
-- Responsibilities: Overall project coordination, task planning, sprint tracking, risk management, and delivery oversight.
+- Project Manager: Stefan Penchev
+- GitHub: https://github.com/StefanPenchev05
+- Responsibilities: Overall project coordination, planning, sprint tracking, task allocation, risk management, and delivery oversight.
 
 ## Team Members
 | Name | Role | GitHub | Contributions |
 | --- | --- | --- | --- |
-| [Team Member 1] | [Role] | [GitHub URL] | [Main responsibilities and contributions] |
-| [Team Member 2] | [Role] | [GitHub URL] | [Main responsibilities and contributions] |
-| [Team Member 3] | [Role] | [GitHub URL] | [Main responsibilities and contributions] |
-| [Team Member 4] | [Role] | [GitHub URL] | [Main responsibilities and contributions] |
-| [Team Member 5] | [Role] | [GitHub URL] | [Main responsibilities and contributions] |
+| Nicolle Blanco | Frontend + UX & UI | https://github.com/niicolleblnco | UI/UX design, user flows, interface layout, and front-end implementation |
+| Anastasiia Shkamerda | Frontend + UX & UI | https://github.com/anstashka | Design consistency, user experience improvements, and front-end development |
+| Nikita Tronciu | Database | https://github.com/nikitatronciu001-code | Data modeling, schema design, and persistence layer support |
+| Yanislav Velikov | Backend + Frontend | https://github.com/yani0514 | Backend logic, API development, integration work, and support across the stack |
+| Stefan Penchev | Backend + Frontend + Project Manager | https://github.com/StefanPenchev05 | Project coordination, backend/frontend implementation, backlog management, and system integration |
 
 ## Team Contributions
-- [Person name]: [Brief summary of their contribution to the project]
-- [Person name]: [Brief summary of their contribution to the project]
-- [Person name]: [Brief summary of their contribution to the project]
-- [Person name]: [Brief summary of their contribution to the project]
-- [Person name]: [Brief summary of their contribution to the project]
+- Nicolle Blanco: Designed the user interface, improved accessibility, and contributed to user-facing screens.
+- Anastasiia Shkamerda: Focused on frontend experience, visual design, and consistent interface implementation.
+- Nikita Tronciu: Built and structured the database layer to support tutoring data, sessions, and user records.
+- Yanislav Velikov: Contributed backend functionality and helped connect core platform features across the app.
+- Stefan Penchev: Coordinated the team workflow, supported implementation, and helped manage project delivery.
 
 ## Project Details
-- Problem statement: [Describe the problem the project solves]
-- Target users: [Who the project is intended for]
-- Key features: [Feature 1], [Feature 2], [Feature 3]
-- Requirements: [Functional and non-functional requirements summary]
-- Deliverables: [List of expected outputs and artifacts]
-- Documentation: [Link to additional docs, reports, or architecture notes]
+- Problem statement: Many students struggle to find timely academic support and reliable peers who can help with specific courses. A structured peer tutoring platform helps match needs with available tutors efficiently.
+- Target users: Students seeking academic help, students offering tutoring support, and course coordinators managing tutoring coverage.
+- Key features: Tutor search and filtering, session booking and scheduling, tutor availability management, user profiles, and coordinator oversight for course coverage.
+- Requirements: Users should be able to search for tutors by subject, view availability, request or book sessions, manage appointments, and allow coordinators to monitor tutor participation and coverage.
+- Deliverables: Project documentation, project board updates, functional prototype or application, and final team presentation.
+- Documentation: [Add links to design docs, architecture notes, or reports]
+
+## Peer Tutoring Platform Idea
+A system for connecting students who need help with students offering tutoring. Users can search for suitable tutors, request or book sessions, and manage availability, while coordinators oversee tutor participation and course coverage.
 
 ## Contact and Collaboration
-- GitHub organization/repository: [Repository URL]
+- GitHub repository: [Add repository URL]
 - Project board: https://github.com/users/StefanPenchev05/projects/11
-- Communication channels: [Slack, Teams, Discord, etc.]
-
-> Update the placeholder fields above with the final project details, team member names, GitHub profiles, and contributions before submitting the project.
+- Communication channels: GitHub, project board, and team meetings
