@@ -9,7 +9,7 @@ Semester project for Team 6 | Software Engineering (2026). Focused on Agile plan
 - Project board: https://github.com/users/StefanPenchev05/projects/11
 - Project status: In progress
 - Project goal: Create a peer tutoring platform that connects students who need academic help with students who can provide support, while helping coordinators manage participation and course coverage.
-- Main technologies: Full-stack web application, responsive UI, database-driven backend, and Agile project management workflow
+- Main technologies: Backend - Golang; Frontend - React with TypeScript; Database - PostgreSQL; Cache/Session store - Redis
 - Project timeline: Winter Semester 2026
 
 ## Team Members
