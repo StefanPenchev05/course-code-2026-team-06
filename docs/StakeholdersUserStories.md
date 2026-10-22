@@ -10,6 +10,7 @@
 
 **Goal:** Quickly find a tutor approved for my subject, by faculty, program and subject, at a time that fits my timetable.
 **Expectation:** Choose online or onsite, explain the purpose and what I need, and get a quick answer from the tutor.
+
 **Concern:** Being sure the tutor is competent, being able to cancel when my plans change, and knowing whom to contact if a session goes wrong.
 
 ### 1.1.2 Tutor
