@@ -2,7 +2,7 @@
 
 ## 2.1 Use-Case Diagram
 
-![Tutti — Use Case Diagram](6_use-case_diagram.png)
+![Tutti — Use Case Diagram](images/6_use-case_diagram.png)
 <!-- Add the use-case diagram image here.
 Example:
 ![Tutti use-case diagram](images/use-case-diagram.png)
