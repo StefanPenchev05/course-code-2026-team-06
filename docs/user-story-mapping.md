@@ -1,28 +1,25 @@
 # 1.2 User Story Mapping (Anastasiia)
 
-> Add the user story mapping diagrams below. Export each diagram as a PNG or JPG and place the image in the `docs/images/` folder, or use a GitHub image upload when editing this file.
 
-## User Story Mapping — Student (tutoree): Book and Manage a Session
+### User story mapping – Student (tutoree): find a tutor
 
-<!-- Insert the student user story mapping diagram here. Example:
-![User story mapping — Student: Book and Manage a Session](images/student-book-manage-session.png)
--->
+![User story mapping – Student (tutoree): find a tutor](images/1_student_find_a_tutor.png)
 
-## User Story Mapping — Tutor: Become a Tutor and Offer Subjects
+### User story mapping – Student (tutoree): book and manage a session
 
-<!-- Insert the tutor application and subject-offering diagram here. -->
+![User story mapping – Student (tutoree): book and manage a session](images/2_student_book_and_manage.png)
 
-## User Story Mapping — Tutor: Manage Teaching
+### User story mapping – Tutor: become a tutor and offer subjects
 
-<!-- Insert the tutor teaching-management diagram here. -->
+![User story mapping – Tutor: become a tutor and offer subjects](images/3_tutor_become_a_tutor.png)
 
-## User Story Mapping — Coordinator (OSL)
+### User story mapping – Tutor: manage teaching
 
-<!-- Insert the coordinator story map here. -->
+![User story mapping – Tutor: manage teaching](images/4_tutor_manage_teaching.png)
 
-## User Story Mapping — Student (tutoree): Find a Tutor
+### User story mapping – Coordinator (OSL)
 
-<!-- Insert the student tutor-search diagram here. -->
+![User story mapping – Coordinator (OSL)](images/5_coordinator.png)
 
 ### Requirement Analysis
 
