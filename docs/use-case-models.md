@@ -1,4 +1,4 @@
-# 2. Develop Use-Case Models (Nikita)
+# 2. Use-Case Models (Nikita)
 
 ## 2.1 Use-Case Diagram
 
