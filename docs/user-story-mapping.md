@@ -21,7 +21,7 @@
 
 ![User story mapping – Coordinator (OSL)](images/5_coordinator.png)
 
-### Requirement Analysis
+# 1.3 Requirement Analysis
 
 Requirements are derived from the stakeholder needs and checked against the user stories (S = Student, T = Tutor, C = Coordinator stories) and use cases. Priorities follow the MVP / Release 1 lines of the story maps (MoSCoW).
 
