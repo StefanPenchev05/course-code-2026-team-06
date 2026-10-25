@@ -2,7 +2,7 @@
 
 The use-case model formalises the functional requirements: who interacts with Tutti (actors), which goals the system supports (use cases), and how the use cases relate through «include», «extend» and generalization. A Tutor is a specialization of Student, so tutors can also book sessions.
 
-![Use-case diagram of Tutti](images/6_use-case_diagram.png)
+![Use-case diagram of Tutti](images/fig06_use_case_diagram.png)
 
 **Figure 6.** *Use-case diagram of Tutti*
 
