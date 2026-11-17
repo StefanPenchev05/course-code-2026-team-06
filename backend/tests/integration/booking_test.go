@@ -22,6 +22,7 @@ import (
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/security"
 	identityhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/interfaces/http"
+	workers "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/worker"
 	scheduling "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/application"
 	schedulingpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/infrastructure/postgres"
 	schedulinghttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/interfaces/http"
@@ -311,6 +312,7 @@ func TestBookingLifecycle(t *testing.T) {
 		t.Fatalf("repeat expiry: %d, %v", n, err)
 	}
 	t.Run("concurrent requests and eligibility", f.testConcurrentRequests)
+	t.Run("expiration workers", f.testExpirationWorkers)
 }
 
 func (f *bookingFixture) testConcurrentRequests(t *testing.T) {
@@ -406,5 +408,89 @@ func (f *bookingFixture) raceLockedChange(t *testing.T, sql, arg string, input m
 	defer response.Body.Close()
 	if response.StatusCode != want {
 		t.Fatalf("expected %d after concurrent change, got %d", want, response.StatusCode)
+	}
+}
+
+func (f *bookingFixture) testExpirationWorkers(t *testing.T) {
+	f.setTime(80 * time.Hour)
+	w := workers.Expiration{Service: f.service, BatchSize: 5, Now: func() time.Time { return time.UnixMicro(f.clock.Load()) }}
+	if _, err := w.RunBatch(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+	due := f.request(t, 201, bookingStudent, 85*time.Hour, bookingOffer, bookingSlot)
+	racing := f.request(t, 201, bookingStudent, 86*time.Hour, bookingOffer, bookingSlot)
+	accepted := f.request(t, 201, bookingStudent, 87*time.Hour, bookingOffer, bookingSlot)
+	f.session(t, 200, "POST", tutorRequestsPath+accepted+"/accept", testMeeting, bookingTutor)
+	if n, err := w.RunBatch(f.ctx); err != nil || n != 0 {
+		t.Fatal(n, err)
+	}
+	f.setTime(81 * time.Hour)
+
+	// A duplicate outbox key aborts the entire bounded expiration batch.
+	key := "session:" + due + ":REQUEST_EXPIRED"
+	f.exec(t, `INSERT INTO notifications (recipient_user_id,type,subject,body,deduplication_key)
+		VALUES ($1,'REQUEST_EXPIRED','Fixture','Fixture',$2)`, fixture(bookingStudent), key)
+	if n, err := w.RunBatch(f.ctx); err == nil || n != 0 {
+		t.Fatal(n, err)
+	}
+	f.count(t, 2, "SELECT count(*) FROM tutoring_sessions WHERE id=ANY($1::text[]::uuid[]) AND status='REQUESTED'", []string{due, racing})
+	f.count(t, 2, "SELECT count(*) FROM session_participant_blocks WHERE session_id=$1", due)
+	f.count(t, 0, "SELECT count(*) FROM session_status_history WHERE session_id=$1 AND to_status='EXPIRED'", due)
+	f.exec(t, "DELETE FROM notifications WHERE recipient_user_id=$1 AND deduplication_key=$2", fixture(bookingStudent), key)
+
+	// An abandoned transaction releases its row locks on rollback, letting a
+	// different worker retry it. Before that, SKIP LOCKED must leave it alone.
+	tx, err := f.db.Begin(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(f.ctx)
+	if _, err := tx.Exec(f.ctx, "SELECT id FROM tutoring_sessions WHERE id=ANY($1::text[]::uuid[]) FOR UPDATE", []string{due, racing}); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := w.RunBatch(f.ctx); err != nil || n != 0 {
+		t.Fatal(n, err)
+	}
+	if err := tx.Rollback(f.ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	outcomes := make(chan error, 2)
+	for range 2 {
+		go func() {
+			<-start
+			workerCtx, stop := context.WithCancel(f.ctx)
+			defer stop()
+			workers.Poll(workerCtx, time.Second, func(ctx context.Context) {
+				_, err := w.RunBatch(ctx)
+				outcomes <- err
+				stop()
+			})
+		}()
+	}
+	cancelResult := make(chan int, 1)
+	go func() {
+		<-start
+		cancelResult <- f.a.request("POST", "/sessions/"+racing+"/cancel", origin, testReason, f.cookie[bookingStudent]).Code
+	}()
+	close(start)
+	for range 2 {
+		if err := <-outcomes; err != nil {
+			t.Fatal(err)
+		}
+	}
+	code := <-cancelResult
+	if code != 200 && code != 409 {
+		t.Fatalf("cancellation race returned %d", code)
+	}
+	f.count(t, 1, "SELECT count(*) FROM tutoring_sessions WHERE id=$1 AND status='EXPIRED'", due)
+	f.count(t, 1, "SELECT count(*) FROM session_status_history WHERE session_id=$1 AND to_status='EXPIRED'", due)
+	f.count(t, 2, "SELECT count(*) FROM notifications WHERE session_id=$1 AND type='REQUEST_EXPIRED'", due)
+	f.count(t, 1, "SELECT count(*) FROM session_status_history WHERE session_id=$1 AND to_status IN ('EXPIRED','CANCELLED')", racing)
+	f.count(t, 0, "SELECT count(*) FROM session_participant_blocks WHERE session_id=ANY($1::text[]::uuid[])", []string{due, racing})
+	f.count(t, 2, "SELECT count(*) FROM session_participant_blocks WHERE session_id=$1", accepted)
+	if n, err := w.RunBatch(f.ctx); err != nil || n != 0 {
+		t.Fatal(n, err)
 	}
 }

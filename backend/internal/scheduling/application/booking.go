@@ -16,7 +16,10 @@ import (
 	tutordomain "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/domain"
 )
 
-const ExpirationBatchSize = 50
+const (
+	ExpirationBatchSize    = 50
+	MaxExpirationBatchSize = 500
+)
 
 type BookingTransaction interface {
 	Student(context.Context, string) (identity.Principal, error)
@@ -275,13 +278,17 @@ func (s *BookingService) respond(ctx context.Context, actor identity.Principal, 
 // ExpireDueRequests processes a single bounded batch. Stage 3 can call this
 // repeatedly. An unprocessed request past its deadline cannot be answered.
 func (s *BookingService) ExpireDueRequests(ctx context.Context, now time.Time) (int, error) {
-	if now.IsZero() {
+	return s.ExpireDueRequestsBatch(ctx, now, ExpirationBatchSize)
+}
+
+func (s *BookingService) ExpireDueRequestsBatch(ctx context.Context, now time.Time, limit int) (int, error) {
+	if now.IsZero() || limit < 1 || limit > MaxExpirationBatchSize {
 		return 0, domain.ErrBookingInvalid
 	}
 	now = now.UTC().Truncate(time.Microsecond)
 	count := 0
 	err := s.repo.TransactBooking(ctx, func(tx BookingTransaction) error {
-		sessions, err := tx.DueRequests(ctx, now, ExpirationBatchSize)
+		sessions, err := tx.DueRequests(ctx, now, limit)
 		if err != nil {
 			return err
 		}

@@ -15,13 +15,11 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
 	catalog "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/application"
 	catalogpostgres "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/infrastructure/postgres"
 	cataloghttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/interfaces/http"
-	coordinationpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/infrastructure/postgres"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/application"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/postgres"
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
@@ -113,20 +111,13 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		Domains:    strings.Split(os.Getenv("UNIVERSITY_EMAIL_DOMAINS"), ","),
 		SessionTTL: sessionTTL, ActivationTTL: activationTTL,
 	}
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		return errors.New("DATABASE_URL is required")
-	}
 	startup, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	pool, err := pgxpool.New(startup, databaseURL)
+	pool, err := openDatabase(startup)
 	if err != nil {
-		return errors.New("invalid PostgreSQL connection configuration")
+		return err
 	}
 	defer pool.Close()
-	if err := pool.Ping(startup); err != nil {
-		return errors.New("could not connect to PostgreSQL")
-	}
 	options, err := redis.ParseURL(env("REDIS_URL", "redis://127.0.0.1:6379/0"))
 	if err != nil {
 		return errors.New("invalid Redis connection configuration")
@@ -155,13 +146,7 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 	tutoringhttp.New(tutoringService, logger).RegisterRoutes(mux, identity)
 	schedulingService := scheduling.New(schedulingpg.New(pool, postgres.LockStudent), tutoringService, time.Now)
 	schedulinghttp.New(schedulingService, logger).RegisterRoutes(mux, identity)
-	bookingRepo := schedulingpg.NewBooking(pool, schedulingpg.BookingDependencies{
-		LockStudent: postgres.LockStudent,
-		Catalog:     func(tx pgx.Tx) catalog.AcademicCatalog { return catalog.New(catalogpostgres.InTransaction(tx)) },
-		Offerings:   tutoringpostgres.BookingOfferings,
-		Discipline:  coordinationpg.Discipline,
-	})
-	schedulinghttp.NewBooking(scheduling.NewBooking(bookingRepo, time.Now), logger).RegisterRoutes(mux, identity)
+	schedulinghttp.NewBooking(newBookingService(pool), logger).RegisterRoutes(mux, identity)
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", "127.0.0.1:8080"),
 		Handler:           http.TimeoutHandler(mux, 10*time.Second, `{"error":"request timed out"}`),
