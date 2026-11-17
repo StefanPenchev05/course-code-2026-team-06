@@ -12,8 +12,8 @@ import (
 )
 
 type Cost struct {
-	Memory uint32 // KiB
-	Time uint32
+	Memory  uint32 // KiB
+	Time    uint32
 	Threads uint8
 }
 
@@ -23,7 +23,7 @@ func (c Cost) valid() bool {
 }
 
 type Passwords struct {
-	cost Cost
+	cost  Cost
 	slots chan struct{}
 }
 
@@ -40,7 +40,7 @@ func (p *Passwords) derive(ctx context.Context, password string, salt []byte, co
 		return nil, ctx.Err()
 	case p.slots <- struct{}{}:
 	}
-	defer func(){ <-p.slots }()
+	defer func() { <-p.slots }()
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

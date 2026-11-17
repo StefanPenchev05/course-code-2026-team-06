@@ -44,17 +44,17 @@ type ActivationMailer interface {
 }
 
 type Config struct {
-	Domains []string
-	SessionTTL time.Duration
+	Domains       []string
+	SessionTTL    time.Duration
 	ActivationTTL time.Duration
 }
 
 type Service struct {
-	repo Repository
-	sessions Sessions
+	repo      Repository
+	sessions  Sessions
 	passwords Passwords
-	config Config
-	domains map[string]bool
+	config    Config
+	domains   map[string]bool
 	dummyHash string
 }
 
@@ -65,7 +65,7 @@ func New(ctx context.Context, repo Repository, sessions Sessions, passwords Pass
 	domains := make(map[string]bool)
 	for _, value := range config.Domains {
 		value = strings.ToLower(strings.TrimSpace(value))
-		if !validEmail("check@"+value) {
+		if !validEmail("check@" + value) {
 			return nil, fmt.Errorf("%w: invalid configured university domain", domain.ErrInvalid)
 		}
 		domains[value] = true

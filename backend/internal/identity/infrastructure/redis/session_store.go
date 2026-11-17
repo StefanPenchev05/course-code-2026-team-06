@@ -13,7 +13,7 @@ import (
 
 const keyPrefix = "tutti:identity:session:"
 
-type Store struct { client *redis.Client }
+type Store struct{ client *redis.Client }
 
 func New(client *redis.Client) *Store { return &Store{client: client} }
 

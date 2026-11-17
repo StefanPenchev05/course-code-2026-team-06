@@ -43,3 +43,7 @@ A system for connecting students who need help with students offering tutoring. 
 ## Database
 
 See the [PostgreSQL setup and integration tests](docs/database/implementation.md) for the Tutti schema, local migration commands, and application transaction requirements.
+
+## Identity API
+
+See the [Identity setup and API guide](docs/identity.md) for configuration, endpoints, coordinator activation, and tests.

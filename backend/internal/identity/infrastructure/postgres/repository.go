@@ -12,7 +12,7 @@ import (
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/domain"
 )
 
-type Repository struct { db *pgxpool.Pool }
+type Repository struct{ db *pgxpool.Pool }
 
 func New(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
 
@@ -107,12 +107,17 @@ func (r *Repository) Principal(ctx context.Context, id string) (domain.Principal
 // Resolve the actor's actual faculty inside each query. A verification outside
 // that faculty is invisible even when the caller knows its UUID.
 const visibleVerifications = `
-	SELECT v.id::text, v.student_id::text, v.faculty_id::text, u.name, u.email,
-	       s.student_number, s.program_id::text, v.status::text, v.submitted_at,
+	SELECT v.id::text, v.student_id::text, v.faculty_id::text,
+	       CASE WHEN p.faculty_id = v.faculty_id THEN u.name ELSE '' END,
+	       CASE WHEN p.faculty_id = v.faculty_id THEN u.email ELSE '' END,
+	       CASE WHEN p.faculty_id = v.faculty_id THEN s.student_number ELSE '' END,
+	       CASE WHEN p.faculty_id = v.faculty_id THEN s.program_id::text ELSE '' END,
+	       v.status::text, v.submitted_at,
 	       v.reviewed_at, coalesce(v.reviewed_by_coordinator_id::text, ''),
 	       coalesce(v.rejection_reason, '')
 	  FROM student_verifications v
 	  JOIN students s ON s.user_id = v.student_id
+	  JOIN programs p ON p.id = s.program_id
 	  JOIN users u ON u.id = s.user_id
 	  JOIN coordinators c ON c.faculty_id = v.faculty_id
 	  JOIN users actor ON actor.id = c.user_id
@@ -169,8 +174,8 @@ func (r *Repository) Review(ctx context.Context, coordinator, id string, decisio
 			return struct{}{}, domain.ErrConflict
 		}
 		_, err = tx.Exec(ctx, `UPDATE student_verifications
-			SET status = $2, reviewed_by_coordinator_id = $3, reviewed_at = statement_timestamp(),
-			    rejection_reason = CASE WHEN $2 = 'REJECTED' THEN $4::text END
+			SET status = $2::text::verification_status, reviewed_by_coordinator_id = $3, reviewed_at = statement_timestamp(),
+			    rejection_reason = CASE WHEN $2::text = 'REJECTED' THEN $4::text END
 			WHERE id = $1`, id, decision, coordinator, reason)
 		return struct{}{}, err
 	})
