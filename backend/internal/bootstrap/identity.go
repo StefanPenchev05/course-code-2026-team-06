@@ -17,6 +17,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	catalog "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/application"
+	catalogpostgres "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/infrastructure/postgres"
+	cataloghttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/interfaces/http"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/application"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/postgres"
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
@@ -131,7 +134,10 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		return err
 	}
 	mux := http.NewServeMux()
-	identityhttp.New(service, origin, secure, logger).RegisterRoutes(mux)
+	identity := identityhttp.New(service, origin, secure, logger)
+	identity.RegisterRoutes(mux)
+	catalogService := catalog.New(catalogpostgres.New(pool))
+	cataloghttp.New(catalogService, logger).RegisterRoutes(mux, identity.RequireAuthentication)
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", "127.0.0.1:8080"),
 		Handler:           http.TimeoutHandler(mux, 10*time.Second, `{"error":"request timed out"}`),

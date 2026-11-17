@@ -47,3 +47,7 @@ See the [PostgreSQL setup and integration tests](docs/database/implementation.md
 ## Identity API
 
 See the [Identity setup and API guide](docs/identity.md) for configuration, endpoints, coordinator activation, and tests.
+
+## Academic Catalog API
+
+See the [Catalog guide](docs/catalog.md) for registration lookups, subject search, and academic eligibility checks.
