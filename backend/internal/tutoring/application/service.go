@@ -131,6 +131,9 @@ func (s *Service) Review(ctx context.Context, actor identity.Principal, id strin
 	if !uuid.MatchString(id) || (status != domain.Approved && status != domain.Rejected) {
 		return domain.ErrInvalid
 	}
+	if status == domain.Approved {
+		reason = ""
+	}
 	if status == domain.Rejected && !validText(reason, 2000) {
 		return fmt.Errorf("%w: rejection reason of 1–2000 bytes is required", domain.ErrInvalid)
 	}

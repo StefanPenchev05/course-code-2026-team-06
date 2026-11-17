@@ -206,7 +206,7 @@ func (t *transaction) ActiveOfferings(ctx context.Context, student string) ([]do
 func (t *transaction) Deactivate(ctx context.Context, id string) error {
 	_, err := t.tx.Exec(ctx, `
 		UPDATE tutor_offerings SET is_active = false, deactivated_at = statement_timestamp(),
-			deactivation_reason = 'Subject is outside the tutor current academic program'
+			deactivation_reason = 'Subject is outside the tutor''s current academic program'
 		WHERE id = $1 AND is_active`, id)
 	return err
 }
