@@ -1,0 +1,624 @@
+// Tutti database design v0.2 — REVIEW DRAFT, not a production migration.
+// Source: Deliverable 1, especially pp. 5–8 and UML p. 16.
+// Partial unique indexes, exclusion constraints, transactional rules, and authorization
+// are specified in notes and the companion Markdown; DBML export alone does not enforce them.
+Project tutti_v0_2 {
+  database_type: 'PostgreSQL'
+  Note: 'Updated with the 16 November 2026 stakeholder decisions. No deployed schema or application code. Three-hour booking cutoff, disputed no-show adjudication, and data-category retention remain open.'
+}
+
+Enum degree_level {
+  BACHELOR
+  MASTER
+}
+
+Enum application_status {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+Enum verification_status {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+Enum attendance_report_status {
+  REPORTED
+  REVIEWED
+}
+
+Enum session_participant_role {
+  STUDENT
+  TUTOR
+}
+
+Enum slot_mode {
+  ONLINE
+  ONSITE
+  BOTH
+}
+
+Enum session_mode {
+  ONLINE
+  ONSITE
+}
+
+Enum booking_purpose {
+  INTRODUCTION
+  HOMEWORK
+  EXAM_PREPARATION
+  COURSE_REVIEW
+  OTHER
+}
+
+Enum session_status {
+  REQUESTED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+Enum issue_status {
+  OPEN
+  RESOLVED
+}
+
+Enum violation_type {
+  LATE_CANCELLATION
+  NO_SHOW
+}
+
+Enum email_status {
+  PENDING
+  SENT
+  FAILED
+}
+
+Enum actor_kind {
+  USER
+  SYSTEM
+}
+
+Enum notification_type {
+  NEW_REQUEST
+  REQUEST_ACCEPTED
+  REQUEST_DECLINED
+  REQUEST_EXPIRED
+  SESSION_CANCELLED
+  APPLICATION_APPROVED
+  APPLICATION_REJECTED
+  STUDENT_VERIFIED
+  STUDENT_REJECTED
+  USER_FLAGGED
+  SESSION_REMINDER
+}
+
+Table faculties {
+  id uuid [pk, not null]
+  name text [not null]
+  Note: 'Academic boundary for coordinator authority. Source: Deliverable 1, pp. 1–2, 7; UML p. 16. Origin: UML-to-relational mapping. '
+}
+
+Table programs {
+  id uuid [pk, not null]
+  faculty_id uuid [not null, ref: > faculties.id]
+  name text [not null]
+  level degree_level [not null]
+  indexes {
+    (faculty_id, level)
+  }
+  Note: 'A degree program offered by one faculty. Source: UC02, p. 10; UML p. 16. Origin: UML-to-relational mapping. '
+}
+
+Table subjects {
+  id uuid [pk, not null]
+  code text [not null, unique, note: 'Subject code is unique university-wide, even when a subject is shared across faculties and programs.']
+  name text [not null]
+  indexes {
+  }
+  Note: 'One canonical university-wide subject, with unique code and ID. The same subject may be linked to multiple programs in different faculties through program_subjects. Confirmed by stakeholder.'
+}
+
+Table program_subjects {
+  program_id uuid [not null, ref: > programs.id]
+  subject_id uuid [not null, ref: > subjects.id]
+  indexes {
+    (program_id, subject_id) [pk]
+    (subject_id, program_id)
+  }
+  Note: 'Relational join for the Program–Subject association. Source: UML p. 16. Origin: Relational join table for an explicit UML association. '
+}
+
+Table users {
+  id uuid [pk, not null]
+  name text [not null]
+  email text [not null, note: 'Proposed case-insensitive uniqueness; no institution domain is hard-coded.']
+  password_hash text [null, note: 'Student registration sets a hash. Preloaded coordinator accounts might need an activation step; exact credential provisioning is still open.']
+  is_suspended boolean [not null, default: false]
+  suspended_at timestamptz [null]
+  suspended_by_coordinator_id uuid [null, ref: > coordinators.user_id]
+  suspension_reason text [null]
+  created_at timestamptz [not null, default: `now()`]
+  indexes {
+    (`lower(email)`) [unique]
+  }
+  checks {
+    `NOT is_suspended OR (suspended_at IS NOT NULL AND suspended_by_coordinator_id IS NOT NULL AND suspension_reason IS NOT NULL AND btrim(suspension_reason) <> '')`
+  }
+  Note: 'One login identity shared by role-specific records. Source: FR1; NFR3; UC14, p. 15; UML p. 16. Origin: UML-to-relational mapping. A coordinator can reverse a suspension; there is no automatic suspension expiry. Suspension changes must be audited. The retention policy remains open at the data-category level. There is no mutually exclusive Student/Tutor/Coordinator role column. Role records below express the documented subtype model. Whether Student and Coordinator membership must be disjoint is not specified.'
+}
+
+Table students {
+  user_id uuid [pk, not null, ref: > users.id]
+  student_number text [not null, unique, note: 'University student ID is provided during signup, then manually checked by faculty coordinator.']
+  program_id uuid [not null, ref: > programs.id]
+  indexes {
+    program_id
+  }
+  Note: 'Created at student signup with program and student number. A students row alone grants no student access: coordinator approval in student_verifications is required before normal login. Coordinators may consult the university DB; the Tutti backend must not directly grant that access to students.'
+}
+
+Table coordinators {
+  user_id uuid [pk, not null, ref: > users.id]
+  employee_number text [not null, unique]
+  faculty_id uuid [not null, unique, ref: > faculties.id]
+  Note: 'Faculty-scoped coordinator. Coordinators and their users rows are pre-provisioned from university records. Only coordinators may use the university data source to validate student IDs. UNIQUE(faculty_id) permits at most one coordinator; provisioning still must ensure faculty coverage. Authorization must enforce faculty restrictions.'
+}
+
+Table student_verifications {
+  id uuid [pk, not null]
+  student_id uuid [not null, ref: > students.user_id]
+  faculty_id uuid [not null, ref: > faculties.id, note: 'Captured from the selected program faculty when registration was submitted.']
+  status verification_status [not null, default: 'PENDING']
+  submitted_at timestamptz [not null, default: `now()`]
+  reviewed_at timestamptz [null]
+  reviewed_by_coordinator_id uuid [null, ref: > coordinators.user_id]
+  rejection_reason text [null]
+  indexes {
+    (faculty_id, status, submitted_at)
+    student_id
+  }
+  checks {
+    `status = 'PENDING' OR (reviewed_at IS NOT NULL AND reviewed_by_coordinator_id IS NOT NULL)`
+    `status <> 'REJECTED' OR (rejection_reason IS NOT NULL AND btrim(rejection_reason) <> '')`
+  }
+  Note: 'Student registration approval request. Coordinator checks email, student ID and program against the university data source, which only coordinators may access. A pending request cannot use student/tutor features. Enforce one PENDING verification per student using a PostgreSQL partial unique index. Review must be restricted to faculty_id. Once APPROVED, the student can use the platform. Multiple attempts and corrections are possible only under a later agreed resubmission workflow; this table preserves decisions.'
+}
+
+Table tutor_profiles {
+  student_id uuid [pk, not null, ref: > students.user_id]
+  description text [not null]
+  approved_at timestamptz [not null]
+  is_active boolean [not null, default: true]
+  Note: 'Tutor-specific profile attached to an approved student. Source: FR15; UC11; UML p. 16. Origin: UML-to-relational mapping. Average rating, sessions taught, and hours taught are derived; not independently writable profile columns. An active profile is necessary but not sufficient to teach a subject: a corresponding approved offering must exist.'
+}
+
+Table tutor_applications {
+  id uuid [pk, not null]
+  student_id uuid [not null, ref: > students.user_id]
+  faculty_id uuid [not null, ref: > faculties.id, note: 'Routing faculty at submission; taken from the applicant faculty.']
+  description text [not null]
+  status application_status [not null, default: 'PENDING']
+  submitted_at timestamptz [not null, default: `now()`]
+  reviewed_at timestamptz [null]
+  reviewed_by_coordinator_id uuid [null, ref: > coordinators.user_id]
+  rejection_reason text [null]
+  indexes {
+    (faculty_id, status, submitted_at)
+    student_id
+  }
+  checks {
+    `status = 'PENDING' OR (reviewed_at IS NOT NULL AND reviewed_by_coordinator_id IS NOT NULL)`
+    `status <> 'REJECTED' OR (rejection_reason IS NOT NULL AND btrim(rejection_reason) <> '')`
+  }
+  Note: 'Exactly one subject per application, represented by exactly one tutor_qualifications row. Entire application is approved/rejected. A student cannot have more than one PENDING application at once (partial unique index). Applicant must already be verified, and chosen subject must belong to the student program through program_subjects. Coordinator belongs to faculty_id. Application retains faculty as submitted.'
+}
+
+Table tutor_qualifications {
+  id uuid [pk, not null]
+  application_id uuid [not null, ref: > tutor_applications.id]
+  subject_id uuid [not null, ref: > subjects.id]
+  grade numeric(4,2) [not null, note: 'Decimal grade, 15.00 through 20.00 inclusive. Two decimal places are a proposed practical precision.']
+  indexes {
+    application_id [unique]
+    (id, subject_id) [unique]
+  }
+  checks {
+    `grade BETWEEN 15 AND 20`
+  }
+  Note: 'Exactly one qualification per tutor application via UNIQUE(application_id); the application workflow must also ensure a row exists. The submitted decimal grade must be at least 15 and no more than 20. Only that faculty coordinator may see grades. Subject must belong to applicant academic program.'
+}
+
+Table tutor_offerings {
+  id uuid [pk, not null]
+  tutor_id uuid [not null, ref: > tutor_profiles.student_id]
+  subject_id uuid [not null, ref: > subjects.id]
+  qualification_id uuid [not null, unique, note: 'Part of a composite FK with subject_id to tutor_qualifications.']
+  description text [not null]
+  indexes {
+    (tutor_id, subject_id) [unique]
+    (id, tutor_id) [unique]
+    (subject_id, tutor_id)
+  }
+  Note: 'A tutor approved to teach one particular subject, backed by a qualification. Source: UML p. 16; UC11, p. 14. Origin: UML-to-relational mapping. Composite FK (qualification_id, subject_id) references tutor_qualifications(id, subject_id). Approval workflow must verify qualification belongs to this same verified student, its application is APPROVED, and subject belongs to the tutor academic program. subject_id is intentionally repeated to enforce one offering per tutor and subject; the composite FK prevents it disagreeing with the qualification.'
+}
+
+Table session_policies {
+  id uuid [pk, not null]
+  cancellation_deadline_hours smallint [not null, default: 24]
+  request_expiry_hours smallint [not null, default: 48]
+  strike_limit smallint [not null, default: 2]
+  checks {
+    `cancellation_deadline_hours = 24`
+    `request_expiry_hours = 48`
+    `strike_limit = 2`
+  }
+  Note: 'The policy object already present in the domain model. Source: FR6, FR8, FR18; UML p. 16. Origin: UML-to-relational mapping. For v0.2 these are the fixed documented rules, not a new policy-editing feature. Sessions reference the policy row. Short-notice requests are allowed, but interpretation of the stated three-hour limit and their expiry deadline is still ambiguous: do not add a three-hour CHECK yet. Expiry is stored per session and validated by application policy. Changing policies/versioning requires later explicit decision.'
+}
+
+Table availability_rules {
+  id uuid [pk, not null]
+  tutor_id uuid [not null, ref: > tutor_profiles.student_id]
+  semester_id uuid [not null, ref: > semesters.id]
+  iso_weekday smallint [not null, note: '1=Monday ... 7=Sunday']
+  local_start_time time [not null]
+  local_end_time time [not null]
+  time_zone text [not null, note: 'IANA timezone (for example Europe/Luxembourg) for daylight-saving-safe recurrence expansion.']
+  allowed_mode slot_mode [not null]
+  created_at timestamptz [not null, default: `now()`]
+  indexes {
+    (tutor_id, semester_id, iso_weekday)
+  }
+  checks {
+    `iso_weekday BETWEEN 1 AND 7`
+    `local_end_time > local_start_time`
+  }
+  Note: 'Recurring weekly tutoring schedule (Option B) scoped to a developer-configured semester. The concrete instances are availability_slots. Current design assumes same-calendar-day windows; overnight windows not yet discussed. Overlapping rules and cross-daylight-saving intervals need validation when expanding occurrences. Deleting a recurring rule must remove future unbooked occurrences while preserving session history.'
+}
+
+Table availability_exceptions {
+  rule_id uuid [not null, ref: > availability_rules.id]
+  local_date date [not null]
+  reason text [null]
+  indexes {
+    (rule_id, local_date) [pk]
+  }
+  Note: 'Skipped occurrence of a weekly rule on a particular local date. Deleting a single occurrence must record an exception, otherwise weekly generation would recreate it. A replacement can be represented as a separate one-off availability slot. This supports the Option B workflow without adding a broad recurrence engine.'
+}
+
+Table availability_slots {
+  id uuid [pk, not null]
+  tutor_id uuid [not null, ref: > tutor_profiles.student_id]
+  rule_id uuid [null, ref: > availability_rules.id, note: 'Null for one-off availability and when underlying recurrence has been removed.']
+  starts_at timestamptz [not null]
+  ends_at timestamptz [not null]
+  allowed_mode slot_mode [not null]
+  indexes {
+    (id, tutor_id) [unique]
+    (tutor_id, starts_at)
+  }
+  checks {
+    `ends_at > starts_at`
+  }
+  Note: 'Concrete availability occurrence, materialized from availability_rules or added one-off. Tutor can DELETE occurrence (not merely archive), except while it has an active requested/accepted booking. Historical sessions preserve their own time/tutor/subject snapshot and may have nullable availability_slot_id after deletion. To prevent a deleted generated occurrence reappearing, also insert availability_exceptions row. Enforce non-overlapping concrete windows for a tutor via PostgreSQL exclusion constraint.'
+}
+
+Table tutoring_sessions {
+  id uuid [pk, not null]
+  student_id uuid [not null, ref: > students.user_id]
+  tutor_id uuid [not null, ref: > tutor_profiles.student_id]
+  offering_id uuid [not null, note: 'Part of composite FK (offering_id, tutor_id).']
+  availability_slot_id uuid [null, ref: > availability_slots.id, note: 'Required for new booking but nullable after source window is deleted; session snapshot remains.']
+  policy_id uuid [not null, ref: > session_policies.id]
+  semester_id uuid [not null, ref: > semesters.id, note: 'Every booking belongs to the configured semester whose schedule is in effect.']
+  faculty_id uuid [not null, ref: > faculties.id, note: 'Tutors faculty, even when requesting student belongs to another faculty.']
+  starts_at timestamptz [not null]
+  ends_at timestamptz [not null, note: 'Stored for interval constraints; exact consistency with starts_at and duration_minutes is checked.']
+  duration_minutes smallint [not null]
+  mode session_mode [not null]
+  purpose booking_purpose [not null]
+  description text [not null]
+  status session_status [not null, default: 'REQUESTED']
+  requested_at timestamptz [not null, default: `now()`]
+  expires_at timestamptz [not null, note: 'Ordinary request: earlier of 48h after request and 24h before session. For permitted short-notice booking the deadline algorithm is not yet finalized.']
+  responded_at timestamptz [null]
+  decline_reason text [null]
+  meeting_link text [null]
+  meeting_room text [null]
+  cancelled_at timestamptz [null]
+  cancelled_by_user_id uuid [null, ref: > users.id]
+  cancellation_reason text [null]
+  is_late_cancellation boolean [not null, default: false]
+  completed_at timestamptz [null, note: 'Tutor explicitly marks accepted session completed. Student may challenge attendance through a report.']
+  completed_by_tutor_id uuid [null, ref: > tutor_profiles.student_id]
+  indexes {
+    (student_id, starts_at)
+    (tutor_id, starts_at)
+    (faculty_id, status, starts_at)
+    (semester_id, status, starts_at)
+    offering_id
+    availability_slot_id
+  }
+  checks {
+    `ends_at > starts_at`
+    `student_id <> tutor_id`
+    `duration_minutes IN (30, 60, 90, 120)`
+    `ends_at - starts_at = duration_minutes * interval '1 minute'`
+    `(purpose = 'INTRODUCTION' AND duration_minutes = 30) OR (purpose <> 'INTRODUCTION' AND duration_minutes IN (60, 90, 120))`
+    `status <> 'DECLINED' OR (decline_reason IS NOT NULL AND btrim(decline_reason) <> '')`
+    `status <> 'CANCELLED' OR (cancelled_at IS NOT NULL AND cancellation_reason IS NOT NULL AND btrim(cancellation_reason) <> '')`
+    `NOT is_late_cancellation OR status = 'CANCELLED'`
+    `status NOT IN ('ACCEPTED', 'COMPLETED', 'NO_SHOW') OR ((mode = 'ONLINE' AND meeting_link IS NOT NULL AND btrim(meeting_link) <> '') OR (mode = 'ONSITE' AND meeting_room IS NOT NULL AND btrim(meeting_room) <> ''))`
+  }
+  Note: 'One request/session record; tutor owns session faculty. Can book across faculties ONLY if subject appears in both requesting student program and tutor program, with approved offering. Session is assigned to current configured semester. Only tutor can set COMPLETED; status NO_SHOW requires attendance adjudication policy still open. On request/accept, two session_participant_blocks rows (student and tutor) lock each person across both roles; delete them on decline/expiry/cancel/complete/no-show. Session cannot be booked with self. Booking window and mode must fit an available occurrence, with the source slot captured at creation but optional for old sessions after window deletion. Original 48h / 24h expiry applies to ordinary requests; short-notice 3h semantics not yet finalized. Cross-table checks and transitions require transactionally validated application logic and/or triggers. No independent subject_id is duplicated because session subject comes through offering_id.'
+}
+
+Table session_participant_blocks {
+  session_id uuid [not null, ref: > tutoring_sessions.id]
+  user_id uuid [not null, ref: > students.user_id]
+  participant_role session_participant_role [not null]
+  starts_at timestamptz [not null]
+  ends_at timestamptz [not null]
+  indexes {
+    (session_id, user_id) [pk]
+    (user_id, starts_at)
+  }
+  checks {
+    `ends_at > starts_at`
+  }
+  Note: 'Durable occupancy index: exactly 2 rows per REQUESTED/ACCEPTED session, one for tutor and one for student. PostgreSQL EXCLUDE USING gist (user_id WITH =, tstzrange(starts_at, ends_at, ''[)'') WITH &&) over this table prevents any person from double booking across either role, not only student-to-student or tutor-to-tutor. Matching session time/participants and insertion/deletion together with state changes require transactional workflows/triggers. On a terminal status delete blocks, preserving session history.'
+}
+
+Table feedback {
+  session_id uuid [pk, not null, ref: > tutoring_sessions.id]
+  rating smallint [not null]
+  comment text [null]
+  created_at timestamptz [not null, default: `now()`]
+  checks {
+    `rating BETWEEN 1 AND 5`
+  }
+  Note: 'One student rating for one completed session. Source: FR9; UC05, p. 11; UML p. 16. Origin: UML-to-relational mapping. The primary key enforces at most one feedback row per session. Only that session student may rate it, and only when its status is COMPLETED. These conditions require authorization and a session-state check. The student and tutor are obtained from the session, not copied into feedback.'
+}
+
+Table issue_reports {
+  id uuid [pk, not null]
+  reporter_user_id uuid [not null, ref: > users.id]
+  faculty_id uuid [not null, ref: > faculties.id]
+  session_id uuid [null, ref: > tutoring_sessions.id]
+  reported_tutor_id uuid [null, ref: > tutor_profiles.student_id, note: 'When reporting a tutor-related issue without a session, identifies the faculty whose coordinator receives it.']
+  subject_user_id uuid [null, ref: > users.id]
+  handled_by_coordinator_id uuid [null, ref: > coordinators.user_id]
+  description text [not null]
+  status issue_status [not null, default: 'OPEN']
+  created_at timestamptz [not null, default: `now()`]
+  resolved_at timestamptz [null]
+  resolution_note text [null]
+  indexes {
+    (faculty_id, status, created_at)
+    session_id
+  }
+  checks {
+    `btrim(description) <> ''`
+    `status <> 'RESOLVED' OR (resolved_at IS NOT NULL AND handled_by_coordinator_id IS NOT NULL AND resolution_note IS NOT NULL AND btrim(resolution_note) <> '')`
+  }
+  Note: 'For an issue concerning a tutor/session, route to the tutors faculty coordinator, regardless of reporting students faculty. The optional session or reported_tutor_id identifies the tutor. Reports not involving any tutor have no explicitly settled routing rule yet; do not silently apply an arbitrary cross-faculty policy. A handler must belong to the stored faculty_id. A report may exist with no session.'
+}
+
+Table semesters {
+  id uuid [pk, not null]
+  name text [not null]
+  starts_at timestamptz [not null]
+  ends_at timestamptz [not null]
+  checks {
+    `ends_at > starts_at`
+  }
+  Note: 'Developer-entered start/end from university-published academic calendar. A booking references the current semester at creation and its schedule; per-session semester_id is immutable. Count incidents for the session semester (not the later reporting/confirmation date). Calendar time-zone handling and any exceptional cross-semester sessions still need final enforcement details.'
+}
+
+Table attendance_reports {
+  id uuid [pk, not null]
+  session_id uuid [not null, ref: > tutoring_sessions.id]
+  reporter_user_id uuid [not null, ref: > students.user_id]
+  absent_user_id uuid [not null, ref: > students.user_id]
+  status attendance_report_status [not null, default: 'REPORTED']
+  details text [null]
+  reported_at timestamptz [not null, default: `now()`]
+  reviewed_at timestamptz [null]
+  reviewed_by_coordinator_id uuid [null, ref: > coordinators.user_id]
+  indexes {
+    (session_id, reporter_user_id) [unique]
+    (absent_user_id, reported_at)
+  }
+  checks {
+    `reporter_user_id <> absent_user_id`
+  }
+  Note: 'Both student and tutor can report that the other party was a no-show. Report must identify two opposite participants of its session and be scoped to the tutor faculty. This is a claim, not automatically a confirmed user violation. Whether a single claim immediately changes session status or triggers a strike, and how disagreement is adjudicated, remain open. Retain evidence and allow coordinator review if required.'
+}
+
+Table user_violations {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > students.user_id, note: 'Tutors share the student identity. Coordinators are not strike subjects in this model.']
+  semester_id uuid [not null, ref: > semesters.id]
+  session_id uuid [not null, ref: > tutoring_sessions.id]
+  kind violation_type [not null]
+  occurred_at timestamptz [not null]
+  recorded_at timestamptz [not null, default: `now()`]
+  issue_report_id uuid [null, ref: > issue_reports.id]
+  attendance_report_id uuid [null, ref: > attendance_reports.id]
+  confirmed_by_coordinator_id uuid [null, ref: > coordinators.user_id]
+  indexes {
+    (user_id, session_id) [unique]
+    (user_id, semester_id)
+    issue_report_id
+  }
+  checks {
+    `kind <> 'NO_SHOW' OR attendance_report_id IS NOT NULL`
+  }
+  Note: 'Individual countable late cancellations and verified no-shows, assigned to session.semester_id. Both participants can submit attendance_reports, but whether a report is verified automatically or by coordinator is UNDECIDED; do not create a user_violations no-show row until that rule is resolved. The optional confirmed_by_coordinator_id is retained for coordinator-driven decisions without imposing that as the sole confirmation path. A violation user must be a participant in session. A user can have at most one countable incident per session (proposed). Do not erase or double count historical violations.'
+}
+
+Table user_semester_flags {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > students.user_id]
+  semester_id uuid [not null, ref: > semesters.id]
+  faculty_id uuid [not null, ref: > faculties.id]
+  flagged_at timestamptz [not null, default: `now()`]
+  indexes {
+    (user_id, semester_id) [unique]
+    (faculty_id, flagged_at)
+  }
+  Note: 'Flag after two countable late-cancellations/verified no-shows in one semester; never an automatic suspension. Store the affected users own faculty for the general flag notification per original UC16. An issue arising from a cross-faculty tutoring session is separately handled by the tutor faculty coordinator. Whether flag alerts should ALSO notify that tutor faculty is not decided.'
+}
+
+Table notifications {
+  id uuid [pk, not null]
+  recipient_user_id uuid [not null, ref: > users.id]
+  type notification_type [not null]
+  subject text [not null]
+  body text [not null]
+  email_status email_status [not null, default: 'PENDING']
+  created_at timestamptz [not null, default: `now()`]
+  email_sent_at timestamptz [null]
+  session_id uuid [null, ref: > tutoring_sessions.id]
+  application_id uuid [null, ref: > tutor_applications.id]
+  flag_id uuid [null, ref: > user_semester_flags.id]
+  verification_id uuid [null, ref: > student_verifications.id]
+  deduplication_key text [not null, note: 'Proposed event identity, unique per recipient; not a new notification feature.']
+  indexes {
+    (recipient_user_id, deduplication_key) [unique]
+    (email_status, created_at)
+    session_id
+    application_id
+  }
+  checks {
+    `email_status <> 'SENT' OR email_sent_at IS NOT NULL`
+  }
+  Note: 'Delivery records for university email notifications, not an in-app inbox. Source: FR7, FR20, FR27; NFR9; UC15; UML p. 16. Origin: UML-to-relational mapping. The durable notification record should be created with the business change that requires it. Delivery may happen afterward; no retry policy is assumed. Different recipients may receive messages for the same event. The event/recipient uniqueness prevents accidental duplicate record creation. SESSION_REMINDER is a Should-have extension only; the other types come from the UML. Email body records can contain personal information and need a retention policy; none is invented.'
+}
+
+Table session_status_history {
+  id uuid [pk, not null]
+  session_id uuid [not null, ref: > tutoring_sessions.id]
+  from_status session_status [null, note: 'Null only for the initial creation event.']
+  to_status session_status [not null]
+  changed_at timestamptz [not null, default: `now()`]
+  actor_kind actor_kind [not null]
+  changed_by_user_id uuid [null, ref: > users.id]
+  reason text [null]
+  indexes {
+    (session_id, changed_at)
+  }
+  checks {
+    `(actor_kind = 'USER' AND changed_by_user_id IS NOT NULL) OR (actor_kind = 'SYSTEM' AND changed_by_user_id IS NULL)`
+  }
+  Note: 'Append-only record of each session status change. Source: NFR12, p. 8; request-expiry behavior UC03. Origin: Proposed persistence structure for the explicit audit requirement. Record the initial creation and each later transition in the same transaction as the current-state change. SYSTEM identifies automatic actions such as request expiry rather than inventing a human actor. Legal transition order and append-only permissions need enforcement beyond this field-level schema.'
+}
+
+Table application_status_history {
+  id uuid [pk, not null]
+  application_id uuid [not null, ref: > tutor_applications.id]
+  from_status application_status [null, note: 'Null only for the initial creation event.']
+  to_status application_status [not null]
+  changed_at timestamptz [not null, default: `now()`]
+  actor_kind actor_kind [not null]
+  changed_by_user_id uuid [null, ref: > users.id]
+  reason text [null]
+  indexes {
+    (application_id, changed_at)
+  }
+  checks {
+    `(actor_kind = 'USER' AND changed_by_user_id IS NOT NULL) OR (actor_kind = 'SYSTEM' AND changed_by_user_id IS NULL)`
+  }
+  Note: 'Append-only record of each application status change. Source: NFR12, p. 8; request-expiry behavior UC03. Origin: Proposed persistence structure for the explicit audit requirement. Record the initial creation and each later transition in the same transaction as the current-state change. SYSTEM identifies automatic actions such as request expiry rather than inventing a human actor. Legal transition order and append-only permissions need enforcement beyond this field-level schema.'
+}
+
+Table sponsors {
+  id uuid [pk, not null]
+  name text [not null]
+  branding_info text [not null]
+  Note: 'External sponsor information and acknowledgement. Source: FR22; UML p. 16. Origin: UML-to-relational mapping. '
+}
+
+Table sponsor_reports {
+  id uuid [pk, not null]
+  sponsor_id uuid [not null, ref: > sponsors.id]
+  faculty_id uuid [not null, ref: > faculties.id]
+  prepared_by_coordinator_id uuid [not null, ref: > coordinators.user_id]
+  period_start date [not null]
+  period_end date [not null]
+  created_at timestamptz [not null, default: `now()`]
+  active_users integer [not null]
+  sessions_held integer [not null]
+  average_feedback numeric(3,2) [null, note: 'Null means there was no qualifying feedback; do not fabricate a zero rating.']
+  indexes {
+    (faculty_id, period_start, period_end)
+  }
+  checks {
+    `period_end >= period_start`
+    `active_users >= 0`
+    `sessions_held >= 0`
+    `average_feedback IS NULL OR average_feedback BETWEEN 1 AND 5`
+  }
+  Note: 'Stored aggregate snapshot for a reporting period. Source: FR21; NFR5; UML p. 16. Origin: UML-to-relational mapping. Values are snapshots when exported, as in the UML; not live totals that change under an old report. Internal coordinator identifiers are metadata, not fields to expose in the sponsor export. Export contains only the approved aggregate figures. Active user means a distinct student or tutor who participated in at least one held tutoring session (proposed implementation: COMPLETED session) within report period. Retention and small-group privacy treatment remain open. Storing aggregate fields alone does not settle these policies.'
+}
+
+Ref: tutor_offerings.(qualification_id, subject_id) > tutor_qualifications.(id, subject_id)
+Ref: tutoring_sessions.(offering_id, tutor_id) > tutor_offerings.(id, tutor_id)
+
+TableGroup academic_catalog {
+  faculties
+  programs
+  subjects
+  program_subjects
+}
+
+TableGroup identity_and_roles {
+  users
+  students
+  coordinators
+  student_verifications
+}
+
+TableGroup tutor_qualification_and_approval {
+  tutor_profiles
+  tutor_applications
+  tutor_qualifications
+  tutor_offerings
+}
+
+TableGroup scheduling {
+  session_policies
+  availability_rules
+  availability_exceptions
+  availability_slots
+  tutoring_sessions
+  session_participant_blocks
+}
+
+TableGroup feedback {
+  feedback
+}
+
+TableGroup coordination_and_incidents {
+  issue_reports
+  attendance_reports
+  semesters
+  user_violations
+  user_semester_flags
+}
+
+TableGroup email_and_audit {
+  notifications
+  session_status_history
+  application_status_history
+}
+
+TableGroup sponsor_reporting_should_have {
+  sponsors
+  sponsor_reports
+}
