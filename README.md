@@ -51,3 +51,7 @@ See the [Identity setup and API guide](docs/identity.md) for configuration, endp
 ## Academic Catalog API
 
 See the [Catalog guide](docs/catalog.md) for registration lookups, subject search, and academic eligibility checks.
+
+## Tutoring API
+
+See the [Tutoring guide](docs/tutoring.md) for applications, coordinator review, approved offerings, and tutor discovery.
