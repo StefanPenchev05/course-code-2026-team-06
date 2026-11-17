@@ -28,6 +28,7 @@ func (h *BookingHandler) RegisterRoutes(mux *http.ServeMux, auth *identityhttp.H
 	read := func(fn http.HandlerFunc) http.Handler { return auth.RequireAuthentication(fn) }
 	write := func(fn http.HandlerFunc) http.Handler { return auth.RequireSameOrigin(read(fn)) }
 	mux.Handle("POST /api/v1/sessions", write(h.request))
+	mux.Handle("POST /api/v1/tutors/me/sessions/{id}/complete", write(h.complete))
 	mux.Handle("GET /api/v1/sessions/me", read(h.mySessions))
 	mux.Handle("GET /api/v1/sessions/{id}", read(h.session))
 	mux.Handle("POST /api/v1/sessions/{id}/cancel", write(h.cancel))
