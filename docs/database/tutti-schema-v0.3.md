@@ -1,8 +1,9 @@
 # Tutti — Database Schema v0.3
 
-**Status:** Policy-approved relational design, **not** an executed PostgreSQL migration.  
+**Status:** Policy-approved relational design. See the [PostgreSQL implementation and verification instructions](implementation.md).
+
 **Basis:** Deliverable 1 and Team 6 architecture documentation, database v0.2, and decisions agreed in the conversation through 16 November 2026.  
-**Companion:** [`tutti-schema-v0.3.dbml`](tutti-schema-v0.3.dbml), with 31 tables, enums, columns, references, checks, and design notes.
+**Companion:** [v0.2 DBML](tutti-schema-v0.2.dbml) for baseline columns. The [v0.3 SQL migrations](../../backend/migrations/) implement the approved changes.
 
 ## What changed since v0.2
 
@@ -88,4 +89,4 @@ The core stakeholder business decisions above are approved. The following are **
 - How developers enter the academic calendar and which university IANA time zone is chosen.
 - How to handle operational retention exceptions such as an unresolved complaint or a valid erasure request, under DPO guidance.
 
-**No migrations have been run.** The next technical deliverable is an ordered migration plan with PostgreSQL DDL, composite FKs, GiST exclusions, partial indexes, and test cases. Do not confuse the DBML model with an implementation-ready schema automatically enforceable by any DBML exporter.
+The [implementation notes](implementation.md) describe where the SQL enforces these rules and where the Go service must participate.

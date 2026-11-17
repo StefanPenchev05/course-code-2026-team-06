@@ -40,3 +40,6 @@ Semester project for Team 6 | Software Engineering (2026). Focused on Agile plan
 ## Peer Tutoring Platform Idea
 A system for connecting students who need help with students offering tutoring. Users can search for suitable tutors, request or book sessions, and manage availability, while coordinators oversee tutor participation and course coverage.
 
+## Database
+
+See the [PostgreSQL setup and integration tests](docs/database/implementation.md) for the Tutti schema, local migration commands, and application transaction requirements.
