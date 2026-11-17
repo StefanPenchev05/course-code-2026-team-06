@@ -12,12 +12,16 @@ import (
 )
 
 type BookingHandler struct {
-	*Handler
+	logger   *slog.Logger
 	bookings *application.BookingService
 }
 
 func NewBooking(bookings *application.BookingService, logger *slog.Logger) *BookingHandler {
-	return &BookingHandler{Handler: &Handler{logger: logger}, bookings: bookings}
+	return &BookingHandler{logger: logger, bookings: bookings}
+}
+
+func (h *BookingHandler) fail(w http.ResponseWriter, r *http.Request, err error) {
+	schedulingError(h.logger, w, r, err)
 }
 
 func (h *BookingHandler) RegisterRoutes(mux *http.ServeMux, auth *identityhttp.Handler) {

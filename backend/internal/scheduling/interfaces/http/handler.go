@@ -105,6 +105,10 @@ type pagination struct {
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
+	schedulingError(h.logger, w, r, err)
+}
+
+func schedulingError(logger *slog.Logger, w http.ResponseWriter, r *http.Request, err error) {
 	code, message := 500, "internal server error"
 	switch {
 	case errors.Is(err, errMalformed):
@@ -123,7 +127,7 @@ func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 		errors.Is(err, domain.ErrBookingOverlap), errors.Is(err, domain.ErrBookingState), errors.Is(err, domain.ErrRequestExpired):
 		code, message = 409, err.Error()
 	default:
-		h.logger.ErrorContext(r.Context(), "scheduling request failed", "route", r.Pattern, "status", code)
+		logger.ErrorContext(r.Context(), "scheduling request failed", "route", r.Pattern, "status", code)
 	}
 	respond(w, code, struct {
 		Error string `json:"error"`

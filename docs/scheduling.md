@@ -1,4 +1,6 @@
-# Scheduling stage 1: availability
+# Scheduling
+
+## Stage 1: availability
 
 Tutoring availability belongs to the tutor's account and can serve any of their approved subject offerings. A **rule** defines one recurring local weekday and clock interval for a semester. A **slot** is a concrete published time window, either generated from a rule or entered as a one-off. An **exception** records a skipped local date for one rule. A **reservation** is the time held by a requested or accepted session. Published windows can include reserved time.
 
@@ -64,9 +66,73 @@ Deleting a rule physically deletes its removable future slots and exceptions. Pa
 
 A concurrent session insert takes a share lock on its source slot through the existing booking trigger. An availability delete therefore waits or wins before the insert gets the source slot. The existing active-session check prevents both operations from committing when they conflict. There are no new migrations.
 
-## Stage 2 and verification
+## Stage 2: session booking
 
-Stage 2 needs a booking transaction that rechecks the slot, both participants, academic eligibility, and the approved offering while creating a session. The free-time endpoint reports a read snapshot. It cannot hold time for a subsequent request. Stage 2 will also implement the booking lifecycle, expiration, and notifications.
+A booking is one session with a student and a tutor. The request identifies an approved subject offering and a published source slot. At creation, the API resolves the subject, tutor, faculty, and semester and rechecks eligibility against both users' current programs. The interval must fit the slot and semester, use a mode allowed by the slot, and start at least three hours after the trusted server timestamp. Self-booking is rejected. An introduction is exactly 30 minutes. Homework, exam preparation, course review, and other sessions may last 60, 90, or 120 minutes.
+
+| Current state | Action | Result |
+| --- | --- | --- |
+| New | Verified student submits a request | `REQUESTED` |
+| `REQUESTED` | Assigned tutor accepts before the deadline | `ACCEPTED` |
+| `REQUESTED` | Assigned tutor declines before the deadline with a reason | `DECLINED` |
+| `REQUESTED` | Internal expiration runs at or after the deadline | `EXPIRED` |
+| `REQUESTED` or `ACCEPTED` | A participant cancels with a reason | `CANCELLED` |
+
+Online acceptance requires an HTTP or HTTPS meeting URL. Onsite acceptance requires a room or location. Acceptance rechecks current account, offering, and academic eligibility while holding locks. An accepted session remains reserved. Decline, expiration, and cancellation release both reservations. The existing row survives each transition. Stage 2 does not complete sessions or adjudicate no-shows.
+
+### Request deadline
+
+Let `N` be the elapsed time from the trusted request timestamp to session start.
+
+| Notice | Expiration |
+| --- | --- |
+| Less than 3 hours | Request rejected |
+| 3 through 25 hours, inclusive | Earlier of request time + 1 hour and start time − 2 hours |
+| More than 25 hours | Earlier of request time + 48 hours and start time − 24 hours |
+
+Acceptance and decline are rejected at the expiration instant, even if the request is still stored as `REQUESTED`. `ExpireDueRequests(ctx, now)` handles one batch of up to 50 due requests using `FOR UPDATE SKIP LOCKED`. Repeating it does not duplicate transitions or notifications. A batch can skip requests locked by another transaction, so the future worker must poll again.
+
+### Booking API
+
+All routes below are under `/api/v1` and require an authenticated, verified student. Writes use the same-origin guard.
+
+| Method and path | Behavior |
+| --- | --- |
+| `POST /sessions` | Creates a request and both reservations. Returns 201. |
+| `GET /sessions/me` | Lists sessions where the caller is a student or tutor. |
+| `GET /sessions/{id}` | Returns the session to either participant. |
+| `POST /sessions/{id}/cancel` | Either participant sends a non-empty `reason`. Returns the updated session. |
+| `GET /tutors/me/session-requests` | Assigned tutor's sessions. Defaults to `REQUESTED`. |
+| `POST /tutors/me/session-requests/{id}/accept` | Assigned tutor sends `meeting_link` or `meeting_room`. |
+| `POST /tutors/me/session-requests/{id}/decline` | Assigned tutor sends a non-empty `reason`. |
+
+Example request:
+
+```json
+{
+  "offering_id": "00000000-0000-0000-0000-000000000441",
+  "availability_slot_id": "00000000-0000-0000-0000-000000000451",
+  "starts_at": "2026-12-07T14:00:00Z",
+  "duration_minutes": 60,
+  "mode": "ONLINE",
+  "purpose": "EXAM_PREPARATION",
+  "description": "Help with dynamic programming."
+}
+```
+
+Successful single-session responses use `{"data":{...}}`. Lists accept `status`, `limit` (1–100, default 25), and `offset` (0–100000, default 0) and sort by start and ID. Responses include the caller's `viewer_role` and meeting details once acceptance supplies them. Grades, emails, and contact details are omitted. Inaccessible sessions return 404, missing or insufficient permissions return 401 or 403, invalid input returns 400 or 422, and overlap or a stale transition returns 409.
+
+### Transaction boundaries
+
+- **Go application rules.** Enforce caller permissions, lifecycle transitions, minimum notice, purpose and meeting information, and both participants' current academic eligibility.
+- **Lock order.** Resolve the offering owner or session participants as a read hint. Lock both Identity accounts in UUID order and their student rows before validating eligibility or locking the session. Stage 1 shares the tutor account lock. Tutoring locks the offering, profile, qualification, and approval rows. Catalog locks membership and the program used to resolve faculty. Booking locks the slot and selected semester before inserting the session. Academic and discipline writers should use compatible account locks. The row locks on eligibility, slots, and semesters also coordinate with direct updates to those rows.
+- **PostgreSQL safeguards.** Existing triggers create, preserve, or release both participant blocks and require a valid source slot. The GiST exclusion constraint rejects overlaps across student and tutor roles while allowing adjacent half-open intervals. PostgreSQL also checks mode and time against the slot on insertion, semester boundaries, minimum notice, expiry, duration, and purpose. A recurring slot uses its rule's semester. A one-off slot uses the most recent configured semester that contains the full window. The fixed policy row is selected from the database and initialized under a transaction lock if absent.
+- **Atomic records.** Session changes, audit history, and deduplicated pending notifications commit together. A new request notifies the tutor, acceptance or decline notifies the student, cancellation notifies the other participant, and expiration queues one notification for each participant. No email delivery is implied by a queued record.
+- **Late cancellations.** Less than 24 hours before start is late. Exactly 24 hours is not. The Coordination operation records one violation for the cancelling participant in the session's semester. At two countable incidents it creates one flag for the participant's home faculty and queues a notification if that faculty has a coordinator. The user remains unsuspended. Any future confirmed no-show workflow must use the same per-user lock when updating the incident count.
+
+### Stage 3 and verification
+
+A displayed free interval is a snapshot. It becomes a reservation only after the booking transaction commits. Stage 3 still needs to connect the expiration worker, implement session completion and no-show workflows, and connect email delivery.
 
 Run from the repository root:
 
@@ -76,4 +142,4 @@ backend/tests/integration/test_identity.sh -race
 python3 backend/tests/integration/test_schema.py
 ```
 
-The service-backed runner uses the migrated PostgreSQL database and Redis. Its Scheduling test covers ownership, suspension, rule reconciliation, one-off windows, exceptions, reserved-time subtraction, overlap under concurrency, and a booking transaction racing slot deletion. Booking rows in that test are fixtures inserted directly through the existing database constraints.
+The service-backed suite uses the migrated PostgreSQL schema and Redis. Stage 1 exercises availability management and protected deletion. Stage 2 covers cross-faculty booking, cross-role and concurrent overlap checks, an offering deactivation or slot deletion racing a request, response and expiration races, the semester flag threshold, and rollback when history or notification persistence fails.
