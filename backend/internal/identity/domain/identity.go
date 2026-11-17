@@ -29,6 +29,7 @@ type Principal struct {
 	Student            bool
 	Tutor              bool
 	CoordinatorFaculty string
+	ProgramID          string
 	Verification       Status
 	Suspended          bool
 	Closed             bool
