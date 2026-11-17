@@ -113,16 +113,17 @@ func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 		code, message = 415, err.Error()
 	case errors.Is(err, errTooLarge):
 		code, message = 413, err.Error()
-	case errors.Is(err, domain.ErrInvalid):
+	case errors.Is(err, domain.ErrInvalid), errors.Is(err, domain.ErrBookingInvalid):
 		code, message = 422, err.Error()
 	case errors.Is(err, domain.ErrForbidden):
 		code, message = 403, domain.ErrForbidden.Error()
 	case errors.Is(err, domain.ErrNotFound):
 		code, message = 404, domain.ErrNotFound.Error()
-	case errors.Is(err, domain.ErrOverlap), errors.Is(err, domain.ErrReserved), errors.Is(err, domain.ErrConflict):
+	case errors.Is(err, domain.ErrOverlap), errors.Is(err, domain.ErrReserved), errors.Is(err, domain.ErrConflict),
+		errors.Is(err, domain.ErrBookingOverlap), errors.Is(err, domain.ErrBookingState), errors.Is(err, domain.ErrRequestExpired):
 		code, message = 409, err.Error()
 	default:
-		h.logger.ErrorContext(r.Context(), "availability request failed", "route", r.Pattern, "status", code)
+		h.logger.ErrorContext(r.Context(), "scheduling request failed", "route", r.Pattern, "status", code)
 	}
 	respond(w, code, struct {
 		Error string `json:"error"`
