@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
@@ -25,6 +26,9 @@ import (
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/security"
 	identityhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/interfaces/http"
+	tutoring "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/application"
+	tutoringpostgres "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/infrastructure/postgres"
+	tutoringhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/interfaces/http"
 )
 
 func env(key, fallback string) string {
@@ -138,6 +142,12 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 	identity.RegisterRoutes(mux)
 	catalogService := catalog.New(catalogpostgres.New(pool))
 	cataloghttp.New(catalogService, logger).RegisterRoutes(mux, identity.RequireAuthentication)
+	tutoringRepo := tutoringpostgres.New(pool, tutoringpostgres.Dependencies{
+		Catalog:                func(tx pgx.Tx) catalog.AcademicCatalog { return catalog.New(catalogpostgres.InTransaction(tx)) },
+		LockStudent:            postgres.LockStudent,
+		LockCoordinatorFaculty: postgres.LockCoordinatorFaculty,
+	})
+	tutoringhttp.New(tutoring.New(tutoringRepo, catalogService), logger).RegisterRoutes(mux, identity)
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", "127.0.0.1:8080"),
 		Handler:           http.TimeoutHandler(mux, 10*time.Second, `{"error":"request timed out"}`),
