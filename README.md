@@ -60,8 +60,12 @@ See the [Tutoring guide](docs/tutoring.md) for applications, coordinator review,
 
 The [backend workflow](.github/workflows/backend.yml) runs on pull requests targeting `main`, pushes to `main`, and manual runs. It checks formatting, runs Go vet and race-enabled tests, builds the API, and runs the PostgreSQL and Redis integration suites with disposable databases.
 
-After the checks pass on `main`, download the Linux amd64 delivery archive from the workflow run's **Artifacts** section. The archive contains the `tutti-api` executable and the SQL migrations. Artifacts are retained for 14 days. Delivery currently ends at packaging. Deploying requires a target environment with PostgreSQL, Redis, and the [Identity configuration](docs/identity.md).
+After the checks pass on `main`, download the Linux amd64 delivery archive from the workflow run's **Artifacts** section. The archive contains the `tutti-api` and `tutti-worker` executables and the SQL migrations. Artifacts are retained for 14 days. Delivery currently ends at packaging. Deploying requires a target environment with PostgreSQL, Redis, and the [Identity configuration](docs/identity.md).
 
 ## Scheduling API
 
 See the [Scheduling guide](docs/scheduling.md) for recurring availability, exceptions, one-off windows, and student-facing free intervals.
+
+## Background workers
+
+See the [worker guide](docs/workers.md) for expiration polling, SMTP delivery, retries, and Compose setup.

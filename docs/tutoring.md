@@ -54,7 +54,7 @@ The write adapters lock the user and student rows, the Catalog program and match
 
 `RevalidateTutorEligibility(ctx, studentID)` is an internal service operation. It reads the current program under lock, deactivates offerings outside that program with a timestamp and reason, and keeps prior evidence and accepted sessions. A change back to an eligible program does not automatically reactivate an offering. There is currently no approved-student program-change endpoint. A future program-change workflow must invoke revalidation. Discovery checks current membership even before the stored offering is updated.
 
-Decision notifications use the applicant's user ID and a unique decision key. A future mail worker can resolve the university email from the recipient identity. The module queues those records without sending mail.
+Decision notifications use the applicant's user ID and a unique decision key. The [mail worker](workers.md) resolves the university email from the recipient identity and submits the queued record to SMTP.
 
 ## Scheduling interface
 

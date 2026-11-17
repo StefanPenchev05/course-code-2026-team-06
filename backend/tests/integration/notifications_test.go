@@ -5,14 +5,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/bootstrap"
 	email "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/notifications/application"
 	emailpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/notifications/infrastructure/postgres"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/notifications/infrastructure/smtp"
@@ -235,4 +239,34 @@ func TestNotificationDelivery(t *testing.T) {
 		t.Fatal(n, err)
 	}
 	state(y.claim.ID, "FAILED", "lease_expired", 2)
+
+	t.Run("worker entry point", func(t *testing.T) {
+		id := seed(506, "worker@local.test")
+		for key, value := range map[string]string{
+			"DATABASE_URL": dsn, "SMTP_HOST": "127.0.0.1", "SMTP_PORT": strconv.Itoa(port),
+			"SMTP_FROM": "tutti@local.test", "SMTP_TLS_MODE": "plain", "SMTP_USERNAME": "", "SMTP_PASSWORD": "",
+			"WORKER_EMAIL_BATCH_SIZE": "1", "WORKER_EMAIL_INTERVAL": "1h", "WORKER_EXPIRATION_INTERVAL": "1h",
+		} {
+			t.Setenv(key, value)
+		}
+		runCtx, stop := context.WithCancel(ctx)
+		defer stop()
+		result := make(chan error, 1)
+		go func() { result <- bootstrap.RunWorker(runCtx, slog.New(slog.NewTextHandler(io.Discard, nil))) }()
+		select {
+		case message := <-messages:
+			if !strings.Contains(message, "Message-ID: <"+id+"@local.test>") {
+				t.Fatal(message)
+			}
+		case err := <-result:
+			t.Fatalf("worker stopped before delivery: %v", err)
+		case <-ctx.Done():
+			t.Fatal("worker did not deliver queued mail")
+		}
+		stop()
+		if err := <-result; err != nil {
+			t.Fatal(err)
+		}
+		state(id, "SENT", "", 1)
+	})
 }

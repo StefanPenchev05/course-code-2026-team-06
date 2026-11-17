@@ -90,7 +90,7 @@ Let `N` be the elapsed time from the trusted request timestamp to session start.
 | 3 through 25 hours, inclusive | Earlier of request time + 1 hour and start time − 2 hours |
 | More than 25 hours | Earlier of request time + 48 hours and start time − 24 hours |
 
-Acceptance and decline are rejected at the expiration instant, even if the request is still stored as `REQUESTED`. `ExpireDueRequests(ctx, now)` handles one batch of up to 50 due requests using `FOR UPDATE SKIP LOCKED`. Repeating it does not duplicate transitions or notifications. A batch can skip requests locked by another transaction, so the future worker must poll again.
+Acceptance and decline are rejected at the expiration instant, even if the request is still stored as `REQUESTED`. The [background worker](workers.md) calls the same Scheduling expiration operation with a configurable batch size, defaulting to 50. `FOR UPDATE SKIP LOCKED` lets workers process different rows. Repeated polls preserve a single history entry and one queued email per recipient for each expiration.
 
 ### Booking API
 
@@ -132,7 +132,7 @@ Successful single-session responses use `{"data":{...}}`. Lists accept `status`,
 
 ### Stage 3 and verification
 
-A displayed free interval is a snapshot. It becomes a reservation only after the booking transaction commits. Stage 3 still needs to connect the expiration worker, implement session completion and no-show workflows, and connect email delivery.
+A displayed free interval is a snapshot. It becomes a reservation only after the booking transaction commits. Stage 3A adds [automatic expiration and email delivery](workers.md). Stage 3B still covers session completion, attendance, and no-show adjudication.
 
 Run from the repository root:
 

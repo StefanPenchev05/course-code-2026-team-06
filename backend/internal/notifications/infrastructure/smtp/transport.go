@@ -18,6 +18,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/notifications/application"
 )
@@ -84,7 +85,7 @@ func mailboxDomain(value string) string {
 }
 
 func (t *Transport) Send(ctx context.Context, message application.Message) error {
-	if mailboxDomain(message.Recipient) == "" || strings.ContainsAny(message.Subject, "\r\n\x00") ||
+	if mailboxDomain(message.Recipient) == "" || strings.ContainsFunc(message.Subject, unicode.IsControl) ||
 		strings.TrimSpace(message.Subject) == "" || len(message.Subject) > 240 ||
 		!messageID.MatchString(message.ID) {
 		return application.InvalidMessage
@@ -97,6 +98,9 @@ func (t *Transport) Send(ctx context.Context, message application.Message) error
 		return classify(ctx, err)
 	}
 	defer raw.Close()
+	if t.config.TLSMode == "plain" && !raw.RemoteAddr().(*net.TCPAddr).IP.IsLoopback() {
+		return application.TLSFailure
+	}
 	stop := context.AfterFunc(ctx, func() { _ = raw.Close() })
 	defer stop()
 	if deadline, ok := ctx.Deadline(); ok {

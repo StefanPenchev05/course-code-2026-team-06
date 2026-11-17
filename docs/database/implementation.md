@@ -1,6 +1,6 @@
 # Tutti PostgreSQL setup
 
-The eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
+The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
 
 | Migration | Domain and key constraints |
 | --- | --- |
@@ -12,6 +12,7 @@ The eight paired [migrations](../../backend/migrations/) create all 31 tables in
 | 6 | Feedback, issue and attendance reports, violations, and semester flags. One feedback row per session, at most one violation per user and session, at most one flag per user and semester, and a confirmed attendance report required for a no-show violation. |
 | 7 | Email notification records, suspension history, and status history. History records store the actor, time, and both states for a transition. |
 | 8 | Sponsors and aggregate report snapshots. Reporting-period, count, and feedback-average checks. |
+| 9 | Email outbox delivery leases, attempts, retry schedule, failure category, and a pending-delivery index. |
 
 ## Local commands
 
@@ -46,7 +47,7 @@ The integration runner requires Docker, Python 3, `migrate`, and PostgreSQL clie
 python3 backend/tests/integration/test_schema.py
 ```
 
-The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It also verifies all eight rollbacks and replays the migrations from empty.
+The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It also verifies all nine rollbacks and replays the migrations from empty.
 
 ## Booking transaction contract
 
