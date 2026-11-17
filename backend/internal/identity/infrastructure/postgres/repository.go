@@ -85,10 +85,16 @@ func (r *Repository) Credentials(ctx context.Context, email string) (id, hash st
 }
 
 func (r *Repository) Principal(ctx context.Context, id string) (domain.Principal, error) {
+	return readPrincipal(ctx, r.db, id)
+}
+
+func readPrincipal(ctx context.Context, db interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, id string) (domain.Principal, error) {
 	var p domain.Principal
-	err := r.db.QueryRow(ctx, `
+	err := db.QueryRow(ctx, `
 		SELECT u.id::text, u.name, u.email, u.is_suspended, u.closed_at IS NOT NULL,
-		       s.user_id IS NOT NULL, coalesce(t.is_active AND t.approval_ended_at IS NULL, false),
+		       s.user_id IS NOT NULL, coalesce(s.program_id::text, ''), coalesce(t.is_active AND t.approval_ended_at IS NULL, false),
 		       coalesce(c.faculty_id::text, ''), coalesce(v.status::text, ''), coalesce(v.rejection_reason, '')
 		  FROM users u
 		  LEFT JOIN students s ON s.user_id = u.id
@@ -97,7 +103,7 @@ func (r *Repository) Principal(ctx context.Context, id string) (domain.Principal
 		  LEFT JOIN LATERAL (SELECT status, rejection_reason FROM student_verifications
 		            WHERE student_id = s.user_id ORDER BY submitted_at DESC, id DESC LIMIT 1) v ON true
 		 WHERE u.id = $1`, id).Scan(&p.ID, &p.Name, &p.Email, &p.Suspended, &p.Closed,
-		&p.Student, &p.Tutor, &p.CoordinatorFaculty, &p.Verification, &p.RejectionReason)
+		&p.Student, &p.ProgramID, &p.Tutor, &p.CoordinatorFaculty, &p.Verification, &p.RejectionReason)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = domain.ErrNotFound
 	}

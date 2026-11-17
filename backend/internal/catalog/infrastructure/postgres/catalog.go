@@ -10,9 +10,22 @@ import (
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/domain"
 )
 
-type Repository struct{ db *pgxpool.Pool }
+type database interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+type Repository struct {
+	db      database
+	rowLock string
+}
 
 func New(db *pgxpool.Pool) *Repository { return &Repository{db: db} }
+
+// InTransaction keeps program and subject-membership reads stable until commit.
+func InTransaction(tx pgx.Tx) *Repository {
+	return &Repository{db: tx, rowLock: " FOR SHARE"}
+}
 
 func (r *Repository) ListFaculties(ctx context.Context) ([]domain.Faculty, error) {
 	rows, err := r.db.Query(ctx, "SELECT id::text, name FROM faculties ORDER BY name, id")
@@ -136,7 +149,7 @@ func (r *Repository) GetSubject(ctx context.Context, id string) (domain.Subject,
 
 func (r *Repository) GetProgramFaculty(ctx context.Context, id string) (string, error) {
 	var faculty string
-	err := r.db.QueryRow(ctx, "SELECT faculty_id::text FROM programs WHERE id = $1", id).Scan(&faculty)
+	err := r.db.QueryRow(ctx, "SELECT faculty_id::text FROM programs WHERE id = $1"+r.rowLock, id).Scan(&faculty)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = domain.ErrProgramNotFound
 	}
@@ -146,7 +159,7 @@ func (r *Repository) GetProgramFaculty(ctx context.Context, id string) (string, 
 func (r *Repository) SubjectBelongsToProgram(ctx context.Context, programID, subjectID string) (bool, error) {
 	var belongs bool
 	err := r.db.QueryRow(ctx, `
-		SELECT EXISTS (SELECT 1 FROM program_subjects WHERE program_id = $1 AND subject_id = $2)`,
+		SELECT EXISTS (SELECT 1 FROM program_subjects WHERE program_id = $1 AND subject_id = $2`+r.rowLock+`)`,
 		programID, subjectID).Scan(&belongs)
 	return belongs, err
 }

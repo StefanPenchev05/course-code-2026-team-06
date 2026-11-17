@@ -1,0 +1,106 @@
+name: Backend CI/CD
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: backend-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Backend checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
+        with:
+          go-version: stable
+          cache-dependency-path: backend/go.sum
+
+      - name: Check formatting
+        working-directory: backend
+        run: |
+          unformatted=$(git ls-files -z -- '*.go' | xargs -0 -r gofmt -l)
+          if [[ -n "$unformatted" ]]; then
+            printf 'Run gofmt on these files:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet, test and build Go packages
+        working-directory: backend
+        run: |
+          go vet ./...
+          go test -race ./...
+          go build ./...
+
+      - name: Install database test tools
+        run: |
+          if ! command -v psql >/dev/null || ! command -v pg_isready >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends postgresql-client
+          fi
+          GOBIN="$RUNNER_TEMP/bin" go install -tags postgres github.com/golang-migrate/migrate/v4/cmd/migrate@v4.18.3
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Test API with PostgreSQL and Redis
+        run: bash backend/tests/integration/test_identity.sh -race
+
+      - name: Test schema, concurrency and migration rollback
+        run: python3 backend/tests/integration/test_schema.py
+
+  package:
+    name: Package Linux backend
+    needs: checks
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
+        with:
+          go-version: stable
+          cache-dependency-path: backend/go.sum
+
+      - name: Build delivery archive
+        working-directory: backend
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: amd64
+        run: |
+          bundle="$RUNNER_TEMP/tutti-backend"
+          mkdir -p "$bundle"
+          go build -trimpath -o "$bundle/tutti-api" ./cmd/api
+          tar -czf "$RUNNER_TEMP/tutti-backend-linux-amd64.tar.gz" \
+            -C "$bundle" tutti-api -C "$GITHUB_WORKSPACE/backend" migrations
+
+      - name: Upload delivery archive
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: tutti-backend-linux-amd64-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/tutti-backend-linux-amd64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
