@@ -20,6 +20,9 @@ import (
 	catalog "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/application"
 	catalogpostgres "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/infrastructure/postgres"
 	cataloghttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/interfaces/http"
+	coordination "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/application"
+	coordpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/infrastructure/postgres"
+	coordhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/interfaces/http"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/application"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/postgres"
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
@@ -147,6 +150,15 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 	schedulingService := scheduling.New(schedulingpg.New(pool, postgres.LockStudent), tutoringService, time.Now)
 	schedulinghttp.New(schedulingService, logger).RegisterRoutes(mux, identity)
 	schedulinghttp.NewBooking(newBookingService(pool), logger).RegisterRoutes(mux, identity)
+	attendanceRepo := coordpg.NewAttendance(pool, coordpg.AttendanceDependencies{
+		LockStudent:            postgres.LockStudent,
+		LockCoordinatorFaculty: postgres.LockCoordinatorFaculty,
+		HomeFaculty: func(ctx context.Context, tx pgx.Tx, program string) (string, error) {
+			return catalog.New(catalogpostgres.InTransaction(tx)).GetProgramFaculty(ctx, program)
+		},
+		Sessions: schedulingpg.AttendanceSessions,
+	})
+	coordhttp.New(coordination.NewAttendance(attendanceRepo, time.Now), logger).RegisterRoutes(mux, identity)
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", "127.0.0.1:8080"),
 		Handler:           http.TimeoutHandler(mux, 10*time.Second, `{"error":"request timed out"}`),

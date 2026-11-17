@@ -89,4 +89,4 @@ backend/tests/integration/test_identity.sh -race
 python3 backend/tests/integration/test_schema.py
 ```
 
-The integration suite uses disposable PostgreSQL and Redis and a loopback SMTP test server that accepts messages locally and simulates 4xx and 5xx replies. It does not contact a production relay. Stage 3B still covers session completion, attendance, and no-show adjudication.
+The integration suite uses disposable PostgreSQL and Redis and a loopback SMTP test server that accepts messages locally and simulates 4xx and 5xx replies. It does not contact a production relay. The worker also delivers the attendance notifications described in the [Coordination guide](coordination.md).

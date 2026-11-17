@@ -16,7 +16,9 @@ import (
 
 	catalog "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/application"
 	catalogpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/infrastructure/postgres"
+	coordination "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/application"
 	coordpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/infrastructure/postgres"
+	coordhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/interfaces/http"
 	identity "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/application"
 	identitypg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/postgres"
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
@@ -94,6 +96,15 @@ func newBookingFixture(t *testing.T) *bookingFixture {
 	auth := identityhttp.New(idService, origin, true, slog.Default())
 	auth.RegisterRoutes(mux)
 	schedulinghttp.NewBooking(f.service, slog.Default()).RegisterRoutes(mux, auth)
+	attendance := coordpg.NewAttendance(db, coordpg.AttendanceDependencies{
+		LockStudent:            identitypg.LockStudent,
+		LockCoordinatorFaculty: identitypg.LockCoordinatorFaculty,
+		HomeFaculty: func(ctx context.Context, tx pgx.Tx, program string) (string, error) {
+			return catalog.New(catalogpg.InTransaction(tx)).GetProgramFaculty(ctx, program)
+		},
+		Sessions: schedulingpg.AttendanceSessions,
+	})
+	coordhttp.New(coordination.NewAttendance(attendance, func() time.Time { return time.UnixMicro(f.clock.Load()) }), slog.Default()).RegisterRoutes(mux, auth)
 	f.a = api{mux}
 	f.exec(t, "INSERT INTO faculties (id,name) VALUES ($1,'Booking Science'),($2,'Booking Engineering')", fixture(401), fixture(402))
 	f.exec(t, "INSERT INTO programs VALUES ($1,$3,'Booking Science','BACHELOR'),($2,$4,'Booking Engineering','MASTER')", fixture(403), fixture(404), fixture(401), fixture(402))
@@ -132,9 +143,6 @@ func newBookingFixture(t *testing.T) *bookingFixture {
 			VALUES ($1,$2,'2027-01-01 00:00Z','2027-01-10 00:00Z',$3)`, fixture(451+i), fixture(tutor), []string{"BOTH", "ONLINE"}[i])
 	}
 	for id, email := range users {
-		if id >= bookingCoordinator {
-			continue
-		}
 		f.cookie[id] = f.a.call(t, 200, "POST", "/auth/login", map[string]string{"email": email + "@uni.example", "password": password}, nil).Result().Cookies()[0]
 	}
 	return f
@@ -313,6 +321,7 @@ func TestBookingLifecycle(t *testing.T) {
 	}
 	t.Run("concurrent requests and eligibility", f.testConcurrentRequests)
 	t.Run("expiration workers", f.testExpirationWorkers)
+	t.Run("completion and attendance", f.testAttendance)
 }
 
 func (f *bookingFixture) testConcurrentRequests(t *testing.T) {

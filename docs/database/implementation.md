@@ -13,6 +13,7 @@ The first eight paired [migrations](../../backend/migrations/) create all 31 tab
 | 7 | Email notification records, suspension history, and status history. History records store the actor, time, and both states for a transition. |
 | 8 | Sponsors and aggregate report snapshots. Reporting-period, count, and feedback-average checks. |
 | 9 | Email outbox delivery leases, attempts, retry schedule, failure category, and a pending-delivery index. |
+| 10 | Outbox notification types for attendance reports and decisions. |
 
 ## Local commands
 
@@ -47,7 +48,7 @@ The integration runner requires Docker, Python 3, `migrate`, and PostgreSQL clie
 python3 backend/tests/integration/test_schema.py
 ```
 
-The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It also verifies all nine rollbacks and replays the migrations from empty.
+The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It also verifies all ten rollbacks and replays the migrations from empty.
 
 ## Booking transaction contract
 

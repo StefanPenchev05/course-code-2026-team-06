@@ -78,7 +78,7 @@ A booking is one session with a student and a tutor. The request identifies an a
 | `REQUESTED` | Internal expiration runs at or after the deadline | `EXPIRED` |
 | `REQUESTED` or `ACCEPTED` | A participant cancels with a reason | `CANCELLED` |
 
-Online acceptance requires an HTTP or HTTPS meeting URL. Onsite acceptance requires a room or location. Acceptance rechecks current account, offering, and academic eligibility while holding locks. An accepted session remains reserved. Decline, expiration, and cancellation release both reservations. The existing row survives each transition. Stage 2 does not complete sessions or adjudicate no-shows.
+Online acceptance requires an HTTP or HTTPS meeting URL. Onsite acceptance requires a room or location. Acceptance rechecks current account, offering, and academic eligibility while holding locks. An accepted session remains reserved. Decline, expiration, and cancellation release both reservations. The existing row survives each transition. Stage 3B adds explicit completion and coordinator adjudication.
 
 ### Request deadline
 
@@ -128,11 +128,17 @@ Successful single-session responses use `{"data":{...}}`. Lists accept `status`,
 - **Lock order.** Resolve the offering owner or session participants as a read hint. Lock both Identity accounts in UUID order and their student rows before validating eligibility or locking the session. Stage 1 shares the tutor account lock. Tutoring locks the offering, profile, qualification, and approval rows. Catalog locks membership and the program used to resolve faculty. Booking locks the slot and selected semester before inserting the session. Academic and discipline writers should use compatible account locks. The row locks on eligibility, slots, and semesters also coordinate with direct updates to those rows.
 - **PostgreSQL safeguards.** Existing triggers create, preserve, or release both participant blocks and require a valid source slot. The GiST exclusion constraint rejects overlaps across student and tutor roles while allowing adjacent half-open intervals. PostgreSQL also checks mode and time against the slot on insertion, semester boundaries, minimum notice, expiry, duration, and purpose. A recurring slot uses its rule's semester. A one-off slot uses the most recent configured semester that contains the full window. The fixed policy row is selected from the database and initialized under a transaction lock if absent.
 - **Atomic records.** Session changes, audit history, and deduplicated pending notifications commit together. A new request notifies the tutor, acceptance or decline notifies the student, cancellation notifies the other participant, and expiration queues one notification for each participant. No email delivery is implied by a queued record.
-- **Late cancellations.** Less than 24 hours before start is late. Exactly 24 hours is not. The Coordination operation records one violation for the cancelling participant in the session's semester. At two countable incidents it creates one flag for the participant's home faculty and queues a notification if that faculty has a coordinator. The user remains unsuspended. Any future confirmed no-show workflow must use the same per-user lock when updating the incident count.
+- **Late cancellations.** Less than 24 hours before start is late. Exactly 24 hours is not. The Coordination operation records one violation for the cancelling participant in the session's semester. At two countable incidents it creates one flag for the participant's home faculty and queues a notification if that faculty has a coordinator. The user remains unsuspended. Confirmed no-shows use the same per-user lock and semester counter.
 
-### Stage 3 and verification
+## Stage 3B: completion and attendance
 
-A displayed free interval is a snapshot. It becomes a reservation only after the booking transaction commits. Stage 3A adds [automatic expiration and email delivery](workers.md). Stage 3B still covers session completion, attendance, and no-show adjudication.
+The assigned tutor can send `POST /api/v1/tutors/me/sessions/{id}/complete` with their session cookie and the configured same-origin header. The server records completion at or after the scheduled end of an `ACCEPTED` session. Success returns 200 with the updated session, including `completed_at` and `completed_by_tutor_id`. The status change releases both reservations and commits with its history entry. No client timestamp is used.
+
+Completion leaves any pending allegations intact. An authorized confirmation may correct an `ACCEPTED` or `COMPLETED` session to `NO_SHOW` while preserving prior history. The [Coordination guide](coordination.md) describes participant reporting, faculty-scoped review, and semester violations.
+
+## Verification
+
+A displayed free interval is a snapshot. It becomes a reservation only after the booking transaction commits. Stage 3A adds [automatic expiration and email delivery](workers.md). Stage 3B adds completion and attendance through the existing API and outbox.
 
 Run from the repository root:
 
