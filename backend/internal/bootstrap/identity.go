@@ -26,6 +26,9 @@ import (
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/security"
 	identityhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/interfaces/http"
+	scheduling "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/application"
+	schedulingpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/infrastructure/postgres"
+	schedulinghttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/interfaces/http"
 	tutoring "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/application"
 	tutoringpostgres "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/infrastructure/postgres"
 	tutoringhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/interfaces/http"
@@ -147,7 +150,10 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		LockStudent:            postgres.LockStudent,
 		LockCoordinatorFaculty: postgres.LockCoordinatorFaculty,
 	})
-	tutoringhttp.New(tutoring.New(tutoringRepo, catalogService), logger).RegisterRoutes(mux, identity)
+	tutoringService := tutoring.New(tutoringRepo, catalogService)
+	tutoringhttp.New(tutoringService, logger).RegisterRoutes(mux, identity)
+	schedulingService := scheduling.New(schedulingpg.New(pool, postgres.LockStudent), tutoringService, time.Now)
+	schedulinghttp.New(schedulingService, logger).RegisterRoutes(mux, identity)
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", "127.0.0.1:8080"),
 		Handler:           http.TimeoutHandler(mux, 10*time.Second, `{"error":"request timed out"}`),
