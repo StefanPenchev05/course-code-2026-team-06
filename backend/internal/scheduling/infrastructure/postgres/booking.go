@@ -121,7 +121,7 @@ const sessionColumns = `
 	coalesce(s.availability_slot_id::text,''),s.semester_id::text,s.starts_at,s.ends_at,
 	s.duration_minutes,s.mode::text,s.purpose::text,s.description,s.status::text,s.requested_at,s.expires_at,
 	s.responded_at,coalesce(s.decline_reason,''),coalesce(s.meeting_link,''),coalesce(s.meeting_room,''),
-	s.cancelled_at,coalesce(s.cancelled_by_user_id::text,''),coalesce(s.cancellation_reason,''),s.is_late_cancellation`
+	s.cancelled_at,coalesce(s.cancelled_by_user_id::text,''),coalesce(s.cancellation_reason,''),s.is_late_cancellation, s.faculty_id::text, s.completed_at, coalesce(s.completed_by_tutor_id::text,'')`
 
 const sessionView = `SELECT ` + sessionColumns + `
 	FROM tutoring_sessions s JOIN tutor_offerings o ON o.id=s.offering_id
@@ -131,12 +131,12 @@ func scanSession(row pgx.Row) (domain.Session, error) {
 	var s domain.Session
 	err := row.Scan(&s.ID, &s.StudentID, &s.TutorID, &s.SubjectID, &s.SubjectName, &s.OfferingID, &s.SlotID, &s.SemesterID,
 		&s.StartsAt, &s.EndsAt, &s.Minutes, &s.Mode, &s.Purpose, &s.Description, &s.Status, &s.RequestedAt, &s.ExpiresAt,
-		&s.RespondedAt, &s.DeclineReason, &s.MeetingLink, &s.MeetingRoom, &s.CancelledAt, &s.CancelledBy, &s.CancellationReason, &s.Late)
+		&s.RespondedAt, &s.DeclineReason, &s.MeetingLink, &s.MeetingRoom, &s.CancelledAt, &s.CancelledBy, &s.CancellationReason, &s.Late, &s.FacultyID, &s.CompletedAt, &s.CompletedBy)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return s, domain.ErrNotFound
 	}
 	s.StartsAt, s.EndsAt, s.RequestedAt, s.ExpiresAt = s.StartsAt.UTC(), s.EndsAt.UTC(), s.RequestedAt.UTC(), s.ExpiresAt.UTC()
-	for _, field := range []*time.Time{s.RespondedAt, s.CancelledAt} {
+	for _, field := range []*time.Time{s.RespondedAt, s.CancelledAt, s.CompletedAt} {
 		if field != nil {
 			*field = field.UTC()
 		}
@@ -195,9 +195,10 @@ func (t *bookingTx) UpdateSession(ctx context.Context, s domain.Session, previou
 	tag, err := t.tx.Exec(ctx, `
 		UPDATE tutoring_sessions SET status=$2,responded_at=$3,decline_reason=NULLIF($4,''),
 			meeting_link=NULLIF($5,''),meeting_room=NULLIF($6,''),cancelled_at=$7,
-			cancelled_by_user_id=NULLIF($8::text,'')::uuid,cancellation_reason=NULLIF($9,''),is_late_cancellation=$10
+			cancelled_by_user_id=NULLIF($8::text,'')::uuid,cancellation_reason=NULLIF($9,''),is_late_cancellation=$10,
+            completed_at=$12,completed_by_tutor_id=NULLIF($13::text,'')::uuid
 		WHERE id=$1 AND status=$11`, s.ID, s.Status, s.RespondedAt, s.DeclineReason, s.MeetingLink, s.MeetingRoom,
-		s.CancelledAt, s.CancelledBy, s.CancellationReason, s.Late, previous)
+		s.CancelledAt, s.CancelledBy, s.CancellationReason, s.Late, previous, s.CompletedAt, s.CompletedBy)
 	if err == nil && tag.RowsAffected() != 1 {
 		return domain.ErrBookingState
 	}
@@ -218,6 +219,8 @@ func (t *bookingTx) RecordEvent(ctx context.Context, event application.Event) er
 	}
 	var kind, summary string
 	switch event.To {
+	case domain.Completed, domain.NoShow:
+		return nil
 	case domain.Requested:
 		kind, summary = "NEW_REQUEST", "New tutoring request"
 	case domain.Accepted:

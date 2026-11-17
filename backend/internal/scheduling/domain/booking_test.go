@@ -84,7 +84,7 @@ func TestBookingTransitionsAndLateCancellation(t *testing.T) {
 		t.Fatal("invalid deadline handling")
 	}
 	s.Status = Accepted
-	if s.Transition(Cancelled, now) != nil || s.Transition(Expired, s.ExpiresAt) == nil || s.Transition(Completed, now) == nil {
+	if s.Transition(Cancelled, now) != nil || s.Transition(Expired, s.ExpiresAt) == nil || s.Transition(Completed, now) != nil {
 		t.Fatal("invalid accepted-session transitions")
 	}
 	for _, status := range []Status{Declined, Expired, Cancelled, Completed, NoShow} {

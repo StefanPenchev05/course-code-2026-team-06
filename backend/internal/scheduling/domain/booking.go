@@ -97,6 +97,9 @@ func earlier(a, b time.Time) time.Time {
 func LateCancellation(now, start time.Time) bool { return start.Sub(now) < 24*time.Hour }
 
 type Session struct {
+	FacultyID          string     `json:"-"`
+	CompletedAt        *time.Time `json:"completed_at,omitempty"`
+	CompletedBy        string     `json:"completed_by_tutor_id,omitempty"`
 	ID                 string     `json:"id"`
 	StudentID          string     `json:"student_id"`
 	TutorID            string     `json:"tutor_id"`
@@ -136,6 +139,14 @@ func (s *Session) SetViewer(user string) {
 
 func (s Session) Transition(to Status, now time.Time) error {
 	switch to {
+	case Completed:
+		if s.Status != Accepted || now.Before(s.EndsAt) {
+			return ErrBookingState
+		}
+	case NoShow:
+		if (s.Status != Accepted && s.Status != Completed) || now.Before(s.EndsAt) {
+			return ErrBookingState
+		}
 	case Accepted, Declined:
 		if s.Status != Requested {
 			return ErrBookingState

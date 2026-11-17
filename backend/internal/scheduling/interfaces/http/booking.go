@@ -167,3 +167,13 @@ func (h *BookingHandler) sessions(w http.ResponseWriter, r *http.Request, tutorO
 	}
 	page(w, p, rows)
 }
+
+func (h *BookingHandler) complete(w http.ResponseWriter, r *http.Request) {
+	p, _ := identityhttp.CurrentPrincipal(r.Context())
+	session, err := h.bookings.Complete(r.Context(), p, r.PathValue("id"))
+	if err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	data(w, 200, session)
+}
