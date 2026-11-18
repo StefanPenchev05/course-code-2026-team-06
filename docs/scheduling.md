@@ -149,3 +149,5 @@ python3 backend/tests/integration/test_schema.py
 ```
 
 The service-backed suite uses the migrated PostgreSQL schema and Redis. Stage 1 exercises availability management and protected deletion. Stage 2 covers cross-faculty booking, cross-role and concurrent overlap checks, an offering deactivation or slot deletion racing a request, response and expiration races, the semester flag threshold, and rollback when history or notification persistence fails.
+
+See [Feedback](feedback.md) for rating completed sessions and how a no-show correction affects active ratings and teaching hours.

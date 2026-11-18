@@ -241,3 +241,9 @@ func (t *bookingTx) RecordEvent(ctx context.Context, event application.Event) er
 		summary+". Sign in to Tutti for details.", event.SessionID, "session:"+event.SessionID+":"+kind)
 	return err
 }
+
+func (r *BookingRepository) UpcomingTutorSessions(ctx context.Context, tutor string, now time.Time, p application.Page) ([]domain.Session, error) {
+	return collectSessions(r.db.Query(ctx, sessionView+`
+		WHERE s.tutor_id=$1 AND s.status='ACCEPTED' AND s.starts_at >= $2
+		ORDER BY s.starts_at,s.id LIMIT $3 OFFSET $4`, tutor, now, p.Limit, p.Offset))
+}

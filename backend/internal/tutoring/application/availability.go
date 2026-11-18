@@ -18,7 +18,7 @@ func (s *Service) CanViewAvailability(ctx context.Context, viewer identity.Princ
 	if !viewer.VerifiedStudent() {
 		return false, nil
 	}
-	_, err := s.Profile(ctx, viewer, tutorID, false)
+	_, err := s.repo.Profile(ctx, tutorID, false)
 	if errors.Is(err, domain.ErrNotFound) {
 		return false, nil
 	}

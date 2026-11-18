@@ -76,10 +76,12 @@ type Offering struct {
 }
 
 type Tutor struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Active      bool   `json:"active"`
+	AverageRating *float64 `json:"average_rating"`
+	RatingCount   int64    `json:"rating_count"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description"`
+	Active        bool     `json:"active"`
 }
 
 type Profile struct {

@@ -38,7 +38,7 @@ Opposing allegations remain separate. The coordinator can decide each on its own
 
 A confirmed no-show counts in the session's semester. Coordination shares the late-cancellation threshold logic and serializes incident counting with the reported participant's Identity write lock. Two countable violations create one flag for that person's current home faculty. The home faculty coordinator receives the flag alert, even when a different faculty reviewed the case. Neither confirmation nor a flag suspends the user.
 
-Completed-session counts, hours taught, and ratings should be derived only from sessions whose **current** status is `COMPLETED`. A corrected `NO_SHOW` session therefore drops out of those aggregates. Existing feedback rows remain historical evidence. This checkout has no public feedback queries or stored teaching counters to update.
+The [Feedback module](feedback.md) derives completed-session counts, hours taught, and ratings from sessions whose current status is `COMPLETED`. A correction drops the session out of those aggregates. Its feedback remains available to the authorized session coordinator.
 
 ## Transactions and notifications
 
@@ -56,4 +56,4 @@ backend/tests/integration/test_identity.sh -race
 python3 backend/tests/integration/test_schema.py
 ```
 
-The PostgreSQL suite covers concurrent completion and reporting, conflicting decisions, faculty isolation, threshold routing, and rollback after failed audit writes. Feedback submission and aggregates, general issue reports, and coordinator suspension or reinstatement remain separate features.
+The PostgreSQL suite covers concurrent completion and reporting, conflicting decisions, faculty isolation, threshold routing, and rollback after failed audit writes. General issue reports and coordinator suspension or reinstatement remain separate features.

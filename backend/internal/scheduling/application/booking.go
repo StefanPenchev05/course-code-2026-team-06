@@ -43,6 +43,7 @@ type Event struct {
 }
 
 type BookingRepository interface {
+	UpcomingTutorSessions(context.Context, string, time.Time, Page) ([]domain.Session, error)
 	TransactBooking(context.Context, func(BookingTransaction) error) error
 	ParticipantSession(ctx context.Context, id, actor string) (domain.Session, error)
 	ListSessions(ctx context.Context, actor string, status domain.Status, tutorOnly bool, p Page) ([]domain.Session, error)

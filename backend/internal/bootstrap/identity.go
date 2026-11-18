@@ -23,6 +23,9 @@ import (
 	coordination "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/application"
 	coordpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/infrastructure/postgres"
 	coordhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/interfaces/http"
+	feedback "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/application"
+	feedbackpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/infrastructure/postgres"
+	feedbackhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/interfaces/http"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/application"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/postgres"
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
@@ -145,11 +148,16 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		LockStudent:            postgres.LockStudent,
 		LockCoordinatorFaculty: postgres.LockCoordinatorFaculty,
 	})
-	tutoringService := tutoring.New(tutoringRepo, catalogService)
+	bookingService := newBookingService(pool)
+	feedbackService := feedback.New(feedbackpg.New(pool, feedbackpg.Dependencies{
+		Student: postgres.LockStudent, Session: schedulingpg.LockStudentSession,
+	}), bookingService)
+	feedbackhttp.New(feedbackService, logger).RegisterRoutes(mux, identity)
+	tutoringService := tutoring.New(tutoringRepo, catalogService, feedbackService)
 	tutoringhttp.New(tutoringService, logger).RegisterRoutes(mux, identity)
 	schedulingService := scheduling.New(schedulingpg.New(pool, postgres.LockStudent), tutoringService, time.Now)
 	schedulinghttp.New(schedulingService, logger).RegisterRoutes(mux, identity)
-	schedulinghttp.NewBooking(newBookingService(pool), logger).RegisterRoutes(mux, identity)
+	schedulinghttp.NewBooking(bookingService, logger).RegisterRoutes(mux, identity)
 	attendanceRepo := coordpg.NewAttendance(pool, coordpg.AttendanceDependencies{
 		LockStudent:            postgres.LockStudent,
 		LockCoordinatorFaculty: postgres.LockCoordinatorFaculty,

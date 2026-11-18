@@ -19,6 +19,9 @@ import (
 	coordination "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/application"
 	coordpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/infrastructure/postgres"
 	coordhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/interfaces/http"
+	feedback "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/application"
+	feedbackpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/infrastructure/postgres"
+	feedbackhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/interfaces/http"
 	identity "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/application"
 	identitypg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/postgres"
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
@@ -28,7 +31,9 @@ import (
 	scheduling "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/application"
 	schedulingpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/infrastructure/postgres"
 	schedulinghttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/interfaces/http"
+	tutoring "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/application"
 	tutoringpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/infrastructure/postgres"
+	tutoringhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/interfaces/http"
 )
 
 type bookingFixture struct {
@@ -96,6 +101,12 @@ func newBookingFixture(t *testing.T) *bookingFixture {
 	auth := identityhttp.New(idService, origin, true, slog.Default())
 	auth.RegisterRoutes(mux)
 	schedulinghttp.NewBooking(f.service, slog.Default()).RegisterRoutes(mux, auth)
+	feedbackService := feedback.New(feedbackpg.New(db, feedbackpg.Dependencies{
+		Student: identitypg.LockStudent, Session: schedulingpg.LockStudentSession,
+	}), f.service)
+	feedbackhttp.New(feedbackService, slog.Default()).RegisterRoutes(mux, auth)
+	tutoringService := tutoring.New(tutoringpg.New(db, tutoringpg.Dependencies{}), catalog.New(catalogpg.New(db)), feedbackService)
+	tutoringhttp.New(tutoringService, slog.Default()).RegisterRoutes(mux, auth)
 	attendance := coordpg.NewAttendance(db, coordpg.AttendanceDependencies{
 		LockStudent:            identitypg.LockStudent,
 		LockCoordinatorFaculty: identitypg.LockCoordinatorFaculty,
@@ -322,6 +333,7 @@ func TestBookingLifecycle(t *testing.T) {
 	t.Run("concurrent requests and eligibility", f.testConcurrentRequests)
 	t.Run("expiration workers", f.testExpirationWorkers)
 	t.Run("completion and attendance", f.testAttendance)
+	t.Run("feedback and tutor activity", f.testFeedback)
 }
 
 func (f *bookingFixture) testConcurrentRequests(t *testing.T) {

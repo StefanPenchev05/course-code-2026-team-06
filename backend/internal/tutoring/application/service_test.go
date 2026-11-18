@@ -81,7 +81,7 @@ func verified() identity.Principal {
 func TestApplyValidationAndRouting(t *testing.T) {
 	ctx := context.Background()
 	f := &txFake{principal: verified(), academic: academic{map[string]bool{subjectID: true}}}
-	s := New(repoFake{tx: f}, nil)
+	s := New(repoFake{tx: f}, nil, nil)
 	input := Submission{SubjectID: subjectID, Grade: 1750, Description: " algorithms "}
 	unverified := verified()
 	unverified.Verification = identity.Pending
@@ -116,7 +116,7 @@ func TestReviewAndRevalidation(t *testing.T) {
 	ctx := context.Background()
 	f := &txFake{principal: verified(), academic: academic{map[string]bool{subjectID: true}},
 		review: ReviewRecord{StudentID: studentID, SubjectID: subjectID, Status: domain.Pending, Grade: 1750}}
-	s := New(repoFake{tx: f}, nil)
+	s := New(repoFake{tx: f}, nil, nil)
 	reviewer := identity.Principal{ID: facultyID, CoordinatorFaculty: facultyID}
 	if err := s.Review(ctx, reviewer, appID, domain.Rejected, " "); !errors.Is(err, domain.ErrInvalid) {
 		t.Fatal(err)
