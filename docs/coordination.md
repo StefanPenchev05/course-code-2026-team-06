@@ -1,4 +1,137 @@
-# Coordination: issue reports and attendance decisions
+# Coordination: monitoring, issue reports and attendance decisions
+
+## Tutor monitoring and faculty statistics (FR16 / UC12, Issue #23)
+
+Monitoring is a read-only Coordination workflow composed from Identity, Tutoring,
+Scheduling and Feedback query ports. It uses the existing session cookie and current
+coordinator authorization. A multi-role account retains coordinator authority
+independently of student verification. Suspended/closed accounts, expired sessions
+and removed assignments are denied. Responses use `Cache-Control: no-store`.
+
+| Method and path (prefix `/api/v1`) | Result |
+| --- | --- |
+| `GET /coordinator/tutors` | Current faculty's approved tutor profiles with activity/rating summaries. Optional `program_id` and `subject_id` support UC12 drill-down. |
+| `GET /coordinator/tutors/{id}` | One profile and activity summary, plus paginated approved offerings. |
+| `GET /coordinator/tutors/{id}/schedule?from=...&to=...` | Published availability and sessions intersecting the requested interval. |
+| `GET /coordinator/statistics` | Faculty tutor counts and session-derived activity/rating totals. |
+| `GET /coordinator/tutors/{id}/feedback` | Existing [Feedback endpoint](feedback.md), reused for private comments and ratings. |
+
+### Faculty authority and tutor population
+
+Identity resolves the active coordinator's assignment again inside a PostgreSQL
+`REPEATABLE READ READ ONLY` transaction. Every query in one response uses that
+transaction and trusted faculty. Client `faculty_id` parameters are rejected.
+Tutor list/detail/schedule authorization uses the tutor's **current program faculty**.
+SQL applies scope before pagination; missing and inaccessible tutors both return
+404. Programs/subjects with no matching own-faculty tutors produce an empty list.
+
+Approved profiles remain visible after deactivation, suspension, closure, approval
+end, or loss of eligible offerings, for oversight of retained activity.
+`approved_tutors` counts these profiles, not applications or offerings. A pending
+application alone never creates an entry. `active` / `active_tutors` additionally
+require an active profile without approval end, an active account, latest approved
+student verification, and at least one active approved offering belonging to the
+current program. Tutoring's existing eligibility predicates supply these rules.
+A profile without offerings remains visible with `active: false`.
+
+Session entries, teaching totals and ratings use **the immutable faculty stored on
+each session**, never the student's home faculty or a recomputed tutor faculty.
+When a tutor moves from A to B, A loses their profile/schedule view; B sees the
+current profile and published availability, but no A-owned sessions or feedback.
+A retains its historical faculty totals and existing authorized session-feedback
+route. Faculty activity therefore need not equal the sum of the currently listed
+tutors' activity. Availability has no stored faculty; its visibility follows current
+tutor membership. Home-faculty disciplinary flags remain a separate workflow.
+
+Authority and data are consistent **as of the response's snapshot**. A reassignment,
+program change or correction committed after it appears on the next request.
+Separate endpoints/pages use separate snapshots; concurrent changes can shift offset
+pages. Monitoring reads take no business row locks and perform no writes.
+
+### Response and aggregate contract
+
+Lists and schedules return `{"data":[...],"pagination":{"limit":25,"offset":0,"has_more":false}}`.
+Pagination is `limit` 1–100 (default 25), `offset` 0–100000 (default 0). Detail applies
+these parameters to `data.offerings`, with `offerings_pagination` beside `data`;
+profile/activity totals are independent of that page. Statistics accepts no query
+parameters. Empty lists are `[]`.
+
+A tutor list item (also the detail fields before `offerings`) looks like:
+
+```json
+{"id":"00000000-0000-0000-0000-000000003202","name":"Tutor display name","program_id":"00000000-0000-0000-0000-000000003111","program_name":"Program name","faculty_id":"00000000-0000-0000-0000-000000003101","approved_at":"2026-11-19T12:00:00Z","active":true,"completed_sessions":3,"hours_taught":4.5,"average_rating":5,"rating_count":2}
+```
+
+Detail offerings use Tutoring's safe `id`, `subject_id`, `subject_name`, `description`
+and `active` fields. Offering `active` means the offering itself is active and belongs
+to the current program; tutor-wide eligibility is the profile's `active` field.
+Tutors sort by display name then ID; offerings by subject name then ID. The subject
+filter matches approved offerings, including retained inactive offerings.
+
+Statistics returns `data` with `faculty_id`, `approved_tutors`, `active_tutors`,
+`completed_sessions`, `hours_taught`, `average_rating`, and `rating_count`. Activity
+is all-time within stored session faculty. Tutor and faculty queries reuse Feedback's
+SQL calculations:
+
+- Only currently `COMPLETED` sessions count. Hours sum scheduled duration minutes
+  and divide by 60, including unrated completed sessions.
+- Ratings count qualifying feedback rows. Average rounds to two decimal places and
+  is `null` when none exist. Faculty averages use individual ratings, not rounded
+  tutor averages. Empty totals/counts are zero.
+- Confirmed no-shows remove contributions on subsequent reads while preserving
+  historical feedback. Pending allegations have no effect.
+
+### Schedule and privacy contract
+
+`from` and `to` are required RFC 3339 timestamps with offsets. `to` must be later,
+with at most **31 elapsed days** between them. The query returns original bounds of
+entries overlapping `[from,to)`, ordered by start, kind, ID. Output times are UTC.
+Historical and future ranges are supported.
+
+`kind: "AVAILABILITY"` contains slot `id`, `starts_at`, `ends_at`, and `mode`;
+recurring slots also include `rule_id`, `time_zone`, and `semester_id`. These are
+materialized published windows, **not free intervals**. Existing Scheduling creates
+them using semester, IANA-zone/DST and exception rules. Excluded occurrences are
+absent. One-off/detached slots have no recurrence metadata. Raw exception reasons
+are not exposed; no second recurrence engine is introduced.
+
+`kind: "SESSION"` contains session `id`, bounds, `mode`, current `status`, subject
+ID/name and semester ID. All statuses remain distinct: requested, accepted,
+completed, cancelled, declined, expired and no-show. A window can overlap a session
+in the response; never add availability to teaching activity.
+
+Explicit SQL/DTOs exclude grades, transcripts, qualification evidence, student
+identities/contact details, session descriptions, meeting secrets and cancellation
+evidence. Comments appear only through Feedback routes. Logs contain route/status
+metadata only. Errors use `{"error":"..."}`: 400 malformed/duplicate/unknown query
+parameters, 401 missing/expired login, 403 ineligible coordinator, 404 inaccessible
+tutor, 422 invalid identifier/filter/bounds/range, or generic 500 for internal failure.
+
+### Verification and limitations
+
+From the repository root in Windows PowerShell, with Docker Desktop Linux containers:
+
+```powershell
+# Build existing runtime/test images; run isolated PostgreSQL/Redis monitoring tests.
+.\backend\tests\integration\test_docker.ps1 -MonitoringOnly
+# Full formatting, vet, race, build, integration and migration regression checks.
+.\backend\tests\integration\test_docker.ps1
+```
+
+The runner preserves `.env`, Compose services, host ports and volumes. It needs no
+running worker, live SMTP or SSO credentials. Existing `-IssuesOnly` and
+`-NotificationsOnly` modes remain available; select one targeted mode at a time.
+`TestCoordinatorMonitoring` is automatically included in the existing CI integration
+command. It exercises current/stale authority, faculty changes, weighted ratings,
+fractional hours, multiple offerings, real recurrence exceptions/DST, attendance
+correction, privacy, pagination and consistent snapshots.
+
+No migration, dashboard counter table, cache or worker job is added. Existing
+program/student, tutor/start, faculty/status/start and feedback primary-key indexes
+support the queries. Lists batch activity lookups; schedules and offerings are
+bounded. Faculty totals still aggregate qualifying history; production-scale load
+testing remains separate. Frontend, SSO, sanctions, sponsor exports, upcoming-count
+analytics and new SMTP work are outside this issue.
 
 ## General issue reporting (FR10 / UC06)
 

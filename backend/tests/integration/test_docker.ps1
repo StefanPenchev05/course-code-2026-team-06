@@ -1,9 +1,9 @@
 # Run from any directory with Docker Desktop using Linux containers.
 # All databases are disposable; the developer's .env and Compose services are not used.
 [CmdletBinding()]
-param([switch]$NotificationsOnly, [switch]$IssuesOnly)
+param([switch]$NotificationsOnly, [switch]$IssuesOnly, [switch]$MonitoringOnly)
 $ErrorActionPreference = 'Stop'
-if ($NotificationsOnly -and $IssuesOnly) { throw 'Choose only one targeted test mode.' }
+if (@($NotificationsOnly, $IssuesOnly, $MonitoringOnly).Where({ $_ }).Count -gt 1) { throw 'Choose only one targeted test mode.' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
 $runId = [Guid]::NewGuid().ToString('N')
 $network = "tutti-test-$runId"
@@ -22,6 +22,7 @@ try {
     $testCommand = @()
     if ($NotificationsOnly) { $testCommand = @('bash', 'tests/integration/test_identity.sh', '-race', '-run', '^TestNotificationDelivery$') }
     if ($IssuesOnly) { $testCommand = @('bash', 'tests/integration/test_identity.sh', '-race', '-run', '^TestIssueReporting$') }
+    if ($MonitoringOnly) { $testCommand = @('bash', 'tests/integration/test_identity.sh', '-race', '-run', '^TestCoordinatorMonitoring$') }
     Invoke-Docker run --rm --name $runner --network $network `
         --mount 'type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock' `
         -e "TUTTI_TEST_DOCKER_NETWORK=$network" -e "TUTTI_TEST_CONTAINER=$runner" `

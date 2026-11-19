@@ -75,6 +75,23 @@ Migration 12 adds a `NOT VALID` check requiring a non-whitespace resolution note
 
 Apply migration 12 before deploying the inbox/resolution API. Its down migration drops only the new validation machinery and reinstates migration 11's `NOT VALID` description check; it deletes no reports or history. After rollback, oversized legacy descriptions are readable but cannot be updated until migration 12 is reapplied. Older down migrations remain destructive. Existing composite reviewer foreign keys also constrain coordinator reassignment/deletion after review; changing that historical model is separate work.
 
+## Monitoring read contract (Issue #23 / FR16 / UC12)
+
+Coordination starts a `REPEATABLE READ READ ONLY` transaction and resolves active
+coordinator authority through Identity in that snapshot. Explicit transaction-bound
+Tutoring, Scheduling and Feedback adapters reuse it for every query in the response.
+Current tutor membership follows `students.program_id` / `programs.faculty_id`;
+session data follows immutable `tutoring_sessions.faculty_id`. Permission changes
+committed before the snapshot apply immediately; changes after it apply next time.
+
+Counts/hours use current `COMPLETED` sessions left-joined to the unique feedback row,
+with no offering/availability join multiplying the population. Faculty ratings use
+the underlying ratings rather than averages of tutor averages. Profile queries use
+`EXISTS` for offering eligibility. Tutor lists batch statistics for at most 101 IDs
+(the requested page plus a lookahead). Schedule queries require an interval of at
+most 31 days and bounded pagination. Existing indexes suffice; no migration or
+persisted counter is introduced. See [API and population definitions](../coordination.md).
+
 ## Booking transaction contract
 
 The session write creates exactly two participant blocks for `REQUESTED` and `ACCEPTED` through a database trigger. Any conflict aborts the session write and both block writes. A transition out of these states deletes both blocks in the same transaction. A separate guard prevents direct changes that would remove or alter an active reservation. The GiST exclusion alone guarantees that existing blocks never overlap for the same user. The triggers guarantee that an active session has both matching blocks. Both concrete availability and reservations use half-open intervals `[start, end)`.
