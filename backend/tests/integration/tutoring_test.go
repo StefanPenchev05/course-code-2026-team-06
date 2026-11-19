@@ -256,6 +256,15 @@ func TestTutoringAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	reactivation := apply(subjectA)
+	// Reconciliation holds the same account lock as coordinator approval.
+	reconcileTx, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reconcileTx.Rollback(ctx)
+	if err := tutoring.RevalidateTutorEligibilityInTransaction(ctx, tutorpg.EligibilityInTransaction(reconcileTx, eligibilityDeps()), tutor); err != nil {
+		t.Fatal(err)
+	}
 	approveStart := make(chan struct{})
 	for range 2 {
 		go func() {
@@ -264,6 +273,10 @@ func TestTutoringAPI(t *testing.T) {
 		}()
 	}
 	close(approveStart)
+	waitEligibilityBlock(t, ctx, db, reconcileTx.Conn().PgConn().PID())
+	if err := reconcileTx.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
 	x, y = <-results, <-results
 	if !((x == 204 && y == 409) || (x == 409 && y == 204)) {
 		t.Fatalf("duplicate concurrent approvals: %d, %d", x, y)

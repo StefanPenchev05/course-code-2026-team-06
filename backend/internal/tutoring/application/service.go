@@ -27,15 +27,12 @@ type ReviewRecord struct {
 }
 
 type Transaction interface {
-	Student(context.Context, string) (identity.Principal, error)
+	EligibilityTransaction
 	CoordinatorFaculty(context.Context, string) (string, error)
-	Catalog() catalog.AcademicCatalog
 	ActiveOffering(ctx context.Context, student, subject string) (bool, error)
 	CreateApplication(ctx context.Context, student, faculty string, input Submission) (string, error)
 	ReviewRecord(ctx context.Context, id, faculty string, lock bool) (ReviewRecord, error)
 	Decide(ctx context.Context, record ReviewRecord, reviewer string, status domain.Status, reason string) error
-	ActiveOfferings(ctx context.Context, student string) ([]domain.Offering, error)
-	Deactivate(ctx context.Context, offeringID string) error
 }
 
 type Repository interface {

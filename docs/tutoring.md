@@ -52,7 +52,33 @@ Missing sessions return 401. Users without the required role or verification rec
 
 The write adapters lock the user and student rows, the Catalog program and matching membership rows, and the relevant application records in the same PostgreSQL transaction. Go never needs to make a separate pool call for academic checks that govern a Tutoring write. Program changes and administrative edits should use transactions and coordinate with these locks. Discovery and the offering read port are point-in-time reads.
 
-`RevalidateTutorEligibility(ctx, studentID)` is an internal service operation. It reads the current program under lock, deactivates offerings outside that program with a timestamp and reason, and keeps prior evidence and accepted sessions. A change back to an eligible program does not automatically reactivate an offering. There is currently no approved-student program-change endpoint. A future program-change workflow must invoke revalidation. Discovery checks current membership even before the stored offering is updated.
+### Internal offering revalidation (Issue #16)
+
+**Implemented:** `Service.RevalidateTutorEligibility(ctx, studentID)` reconciles the current program in its own transaction. `RevalidateTutorEligibilityInTransaction(ctx, tx EligibilityTransaction, studentID)` runs the **same** reconciliation logic in a caller-owned transaction. These are internal capabilities, not HTTP routes. Invalid UUIDs fail before persistence; unknown students return Tutoring's not-found error. A known student without a tutor profile or active offerings safely requires no offering writes.
+
+Reconciliation locks the affected Identity account and student, reads the current program, locks the program through Catalog, then locks only that student's active offerings in subject order and checks current subject membership through the same transaction-bound Catalog adapter. Only active offerings whose canonical subjects are absent from that program are deactivated. Shared subjects remain active even across faculties. The only business table it modifies is `tutor_offerings`: `is_active=false`, `deactivated_at=statement_timestamp()` and a nonempty program-ineligibility reason. Migration `000003` already enforces consistent active/inactive metadata; no new migration is needed.
+
+Inactive offerings are not selected, and the guarded update also requires `is_active`. Repeated or concurrent reconciliation preserves the original deactivation time/reason. Reconciliation does not create applications, approvals, qualifications, history events or notifications, and never reactivates an offering. Returning to the old program is insufficient: a new one-subject application and explicit authorized coordinator approval must restore the offering. That existing approval workflow retains the offering ID, attaches new qualification evidence, clears deactivation metadata, and preserves earlier evidence/history.
+
+Revalidation does not write `tutoring_sessions`, participant blocks, session history or feedback. REQUESTED, ACCEPTED and historical sessions remain intact; it does not cancel or reschedule them. Handling an existing session after an academic change requires a separate authorized action. Discovery and `GetApprovedOffering` check live membership independently of reconciliation, so a stale active flag alone never grants entitlement. The owner profile remains able to show inactive offerings; public views omit them and private grades.
+
+### Shared transaction integration contract
+
+**Not implemented:** an approved end-to-end academic-program-change administration workflow that automatically invokes reconciliation. The existing Identity verification-resubmission path is not such an approved-student administration endpoint. There is no new public route or automatic trigger in this change.
+
+A future trusted application service must receive a narrow transaction-bound Tutoring port, supplied by bootstrap/infrastructure; Identity or Catalog business logic must not import Tutoring's concrete PostgreSQL repository. The adapter factory `postgres.EligibilityInTransaction(pgx.Tx, Dependencies)` exposes the existing implementation as `application.EligibilityTransaction` without opening a pool transaction. Supply Identity's `LockStudent` and `catalog.New(catalogpostgres.InTransaction(tx))` through `Dependencies`. All operations and locks must use that exact `pgx.Tx`; never call the independent service method from inside a program-update transaction.
+
+The future orchestrator must:
+
+1. Begin one transaction. Acquire Identity account `FOR NO KEY UPDATE` and student lock **before** updating the program. For multiple affected accounts, acquire them in UUID order, matching Scheduling's participant order.
+2. Validate and lock the proposed program using the transaction-bound Catalog interface. Authorize the academic change in its owning workflow; the internal reconciliation port does not authorize administrative requests.
+3. Update the student's program within this transaction.
+4. Call `RevalidateTutorEligibilityInTransaction` using the bound adapter. It rereads the current program under the account/student lock, then locks the program, offerings and matching membership rows. Tutoring application/review writers also acquire the affected student's account before offering changes.
+5. Commit both the program change and deactivations together, or **roll back the entire transaction on any error**, including a late membership/deactivation error. The bound function does not commit, roll back or start a nested transaction. Retry transaction conflicts only by retrying the whole authorized use case.
+
+A separate committed program update followed by independent reconciliation is not atomic. Current discovery/booking checks provide additional protection but do not replace this integration contract. Arbitrary SQL writers that skip the account lock are outside the contract. Existing Catalog `FOR SHARE` reads stabilize present program/membership rows; trusted catalog edits must respect their locks. Missing membership cannot grant tutoring access, and a later added membership never automatically restores a withdrawn offering.
+
+Scheduling resolves a tutor hint, locks both accounts in UUID order, rechecks current principals and the approved offering, and locks current academic membership before inserting a booking. If the program change commits first, a waiting new booking sees the changed program/inactive offering and fails. If the booking commits first, a later program change preserves that existing request/session. Neither ordering grants permission to silently cancel an earlier booking. Keep this lock protocol when integrating future administration.
 
 Decision notifications use the applicant's user ID and a unique decision key. The [mail worker](workers.md) resolves the university email from the recipient identity and submits the queued record to SMTP.
 
@@ -75,3 +101,13 @@ python3 backend/tests/integration/test_schema.py
 The shared integration runner executes Tutoring, Identity, and Catalog tests. The Tutoring cases exercise faculty boundaries, cross-faculty discovery, grade privacy, concurrent decisions, profile reuse, revalidation and reactivation, and transaction rollback after a failed notification insert.
 
 Tutor search and profile responses include aggregate ratings from the [Feedback module](feedback.md). The same guide covers private feedback history and teaching activity.
+
+### Issue #16 verification coverage
+
+- `application/eligibility_test.go`: valid/invalid identifiers, missing student, no active offerings, all/some/no eligible subjects, idempotency/no automatic reactivation, and propagation of student/program/list/membership/deactivation errors. Repository fakes check rollback contract; real persistence rollback is covered below.
+- `tests/integration/tutoring_test.go` and `tutoring_revalidation_test.go`: same-faculty change, cross-faculty shared subject preservation, owner visibility/privacy, live discovery/approved-offering exclusion, timestamp/reason, exact historical approval-evidence preservation, non-tutor/unknown student, repeated concurrent reconciliation, and stable-ID reapproval. Approval is raced against reconciliation's account lock. Forced second-offering update failure proves both independent reconciliation rollback and caller-owned program-change rollback against the migrated schema.
+- `TestBookingLifecycle/program_change_and_revalidation`: PostgreSQL-observed lock waits test **both** program-change/booking orderings, rejection of later bookings, explicit reapproval, and unchanged snapshots of REQUESTED/ACCEPTED/historical sessions, participant blocks, session history, feedback, prior qualifications/applications and another tutor's offering. The program-change orchestrator is test-only; it is not an implemented production workflow.
+
+The test suites use the actual migrations, not a simplified schema. Live SMTP/SSO, unrelated frontend work and production deployment are outside this issue.
+
+Verification on 2026-11-19: `go test -race ./...`, `go vet ./...` and `go build ./...` from `backend`, plus `bash backend/tests/integration/test_identity.sh -race` and `python3 backend/tests/integration/test_schema.py` from the repository root all passed. Final Go runs used the working tree directly, without an overlay. The integration runner skipped its opt-in worker-container and live university SMTP probes; these are unrelated to revalidation acceptance. The schema runner verified all 31 tables, integrity/concurrency checks, all ten rollbacks and reapplication. No new migration, public program-change endpoint or automatic invocation is claimed.
