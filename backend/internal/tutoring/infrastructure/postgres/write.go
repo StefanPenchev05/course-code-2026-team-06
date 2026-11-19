@@ -43,6 +43,13 @@ func (r *Repository) InTransaction(ctx context.Context, work func(application.Tr
 	return err
 }
 
+// EligibilityInTransaction binds the existing reconciliation adapter to a caller's
+// transaction. Dependencies must also be transaction-bound; bootstrap supplies
+// Identity's locker and Catalog's transactional adapter. No pool query is used.
+func EligibilityInTransaction(tx pgx.Tx, deps Dependencies) application.EligibilityTransaction {
+	return &transaction{tx: tx, reader: deps.Catalog(tx), deps: deps}
+}
+
 type transaction struct {
 	tx     pgx.Tx
 	reader catalog.AcademicCatalog

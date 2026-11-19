@@ -335,6 +335,7 @@ func TestBookingLifecycle(t *testing.T) {
 	t.Run("expiration workers", f.testExpirationWorkers)
 	t.Run("completion and attendance", f.testAttendance)
 	t.Run("feedback and tutor activity", f.testFeedback)
+	t.Run("program change and revalidation", f.testProgramRevalidation)
 }
 
 func (f *bookingFixture) testConcurrentRequests(t *testing.T) {
