@@ -66,6 +66,10 @@ jobs:
       - name: Test schema, concurrency and migration rollback
         run: python3 backend/tests/integration/test_schema.py
 
+      - name: Verify worker runtime image with local SMTP
+        shell: pwsh
+        run: ./backend/tests/integration/test_docker.ps1 -NotificationsOnly
+
   package:
     name: Package Linux backend
     needs: checks

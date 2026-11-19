@@ -16,8 +16,9 @@ type Message struct {
 
 type Claim struct {
 	Message
-	Token   string
-	Attempt int
+	Token      string
+	Attempt    int
+	LeaseUntil time.Time
 }
 
 type Store interface {
@@ -82,6 +83,26 @@ type Delivery struct {
 	store     Store
 	transport Transport
 	config    Config
+	observe   func(Event)
+}
+
+// Event deliberately excludes recipient addresses, message content, provider
+// replies and claim tokens. Observers must not block delivery.
+type Event struct {
+	ID         string
+	Attempt    int
+	State      string
+	Failure    FailureCode
+	RetryAfter time.Duration
+	LeaseUntil time.Time
+	Duration   time.Duration
+}
+
+// WithObserver returns a copy; configure it before starting the delivery loop.
+func (d *Delivery) WithObserver(observe func(Event)) *Delivery {
+	copy := *d
+	copy.observe = observe
+	return &copy
 }
 
 func New(store Store, transport Transport, config Config) (*Delivery, error) {
@@ -137,6 +158,14 @@ func (d *Delivery) RunBatch(ctx context.Context) (Stats, error) {
 }
 
 func (d *Delivery) deliver(ctx context.Context, claim Claim, stats *Stats) error {
+	started := time.Now()
+	event := Event{ID: claim.ID, Attempt: claim.Attempt, LeaseUntil: claim.LeaseUntil}
+	defer func() {
+		if d.observe != nil {
+			event.Duration = time.Since(started)
+			d.observe(event)
+		}
+	}()
 	// On SIGTERM finish only the already claimed message, within these timeouts.
 	inFlight := context.WithoutCancel(ctx)
 	sendCtx, cancel := context.WithTimeout(inFlight, d.config.SendTimeout)
@@ -148,22 +177,27 @@ func (d *Delivery) deliver(ctx context.Context, claim Claim, stats *Stats) error
 	var err error
 	switch {
 	case sendErr == nil:
+		event.State = "sent"
 		err = d.store.Sent(dbCtx, claim)
 		if err == nil {
 			stats.Sent++
 		}
 	case errors.Is(sendErr, context.Canceled):
+		event.State = "abandoned"
 		// An adapter that aborts without a definite provider result leaves the
 		// claim for lease recovery. Do not mark the message permanently failed.
 		stats.Lost++
 	default:
 		code := failureCode(sendErr)
+		event.Failure = code
 		var delay time.Duration
 		if code != InvalidMessage && code != PermanentRejection && claim.Attempt < d.config.MaxAttempts {
 			delay = Backoff(claim.Attempt, d.config.RetryBase, d.config.RetryMax)
 		}
 		err = d.store.Failed(dbCtx, claim, code, delay)
+		event.State, event.RetryAfter = "failed", delay
 		if err == nil && delay > 0 {
+			event.State = "retry"
 			stats.Retried++
 		}
 		if err == nil && delay == 0 {
@@ -171,10 +205,12 @@ func (d *Delivery) deliver(ctx context.Context, claim Claim, stats *Stats) error
 		}
 	}
 	if errors.Is(err, ErrClaimLost) {
+		event.State = "claim_lost"
 		stats.Lost++
 		return nil
 	}
 	if err != nil {
+		event.State = "finalize_error"
 		return fmt.Errorf("finalize email claim: %w", err)
 	}
 	return nil
