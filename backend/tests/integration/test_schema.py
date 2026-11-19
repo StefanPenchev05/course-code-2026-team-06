@@ -16,7 +16,7 @@ EXPECTED_TABLES = set("""
     availability_exceptions availability_slots tutoring_sessions session_participant_blocks
     feedback issue_reports semesters attendance_reports user_violations user_semester_flags
     notifications user_suspension_history session_status_history application_status_history
-    sponsors sponsor_reports
+    sponsors sponsor_reports issue_status_history
 """.split())
 TABLE_QUERY = """
     SELECT tablename FROM pg_tables
@@ -116,7 +116,21 @@ def main():
             "disposable PostgreSQL did not start",
         )
         migrate = ["migrate", "-path", str(MIGRATIONS), "-database", url]
+        run(*migrate, "up", "10")
+        # Migration 11 must preserve pre-existing descriptions without inventing
+        # audit events for historical writes whose sequence is unknown.
+        run(*psql, "-q", "-c", """
+            WITH faculty AS (INSERT INTO faculties(name) VALUES('Legacy issue faculty') RETURNING id),
+                 reporter AS (INSERT INTO users(name,email) VALUES('Legacy reporter','legacy-issue@example.test') RETURNING id)
+            INSERT INTO issue_reports(reporter_user_id,faculty_id,description)
+            SELECT reporter.id,faculty.id,repeat('x',2001) FROM reporter,faculty;
+        """)
         run(*migrate, "up")
+        if output(*psql, "-Atc", """
+            SELECT (SELECT count(*) FROM issue_reports WHERE description=repeat('x',2001)),
+                   (SELECT count(*) FROM issue_status_history)
+        """) != "1|0":
+            raise RuntimeError("issue upgrade changed legacy data or invented history")
         check_tables(psql, EXPECTED_TABLES)
         run(*psql, "-q", "-f", str(TESTS / "schema.sql"), stdout=subprocess.DEVNULL)
         check_concurrency(psql)
@@ -125,7 +139,7 @@ def main():
         check_tables(psql, set())
         run(*migrate, "up")
         check_tables(psql, EXPECTED_TABLES)
-        print("PASS: all 31 tables, integrity checks, concurrent exclusion, complete rollback and reapply.")
+        print("PASS: all 32 tables, legacy issue upgrade, integrity checks, concurrent exclusion, complete rollback and reapply.")
     except Exception:
         run("docker", "logs", "--tail", "20", container)
         raise

@@ -1,6 +1,6 @@
 # Tutti PostgreSQL setup
 
-The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
+The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Migration 11 adds issue status history, bringing the current total to 32. Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
 
 | Migration | Domain and key constraints |
 | --- | --- |
@@ -14,6 +14,7 @@ The first eight paired [migrations](../../backend/migrations/) create all 31 tab
 | 8 | Sponsors and aggregate report snapshots. Reporting-period, count, and feedback-average checks. |
 | 9 | Email outbox delivery leases, attempts, retry schedule, failure category, and a pending-delivery index. |
 | 10 | Outbox notification types for attendance reports and decisions. |
+| 11 | Append-only issue status history, one creation event per report, and bounded new issue descriptions. |
 
 ## Local commands
 
@@ -48,7 +49,17 @@ The integration runner requires Docker, Python 3, `migrate`, and PostgreSQL clie
 python3 backend/tests/integration/test_schema.py
 ```
 
-The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It also verifies all ten rollbacks and replays the migrations from empty.
+The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It verifies the migration 10 → 11 upgrade with legacy issue data, all eleven rollbacks, and replays the migrations from empty. On Windows, `.\backend\tests\integration\test_docker.ps1` runs these checks using the existing Dockerfile and disposable containers, without native database tooling or changes to Compose services.
+
+## Issue creation transaction contract
+
+The [Coordination issue service](../coordination.md#general-issue-reporting-fr10--uc06) implements FR10 / UC06 creation. The same transaction locks and rechecks the reporter's current Identity state and program, obtains the current Catalog faculty for an unlinked report or the authorized Scheduling participant session for a linked report, and inserts `issue_reports` plus `issue_status_history`. Linked issues use the session's immutable tutor faculty, enforced again by the existing `(session_id, faculty_id)` foreign key. The existing `(faculty_id, status, created_at)` index supports future scoped inbox queries.
+
+New reports begin `OPEN` and write a `NULL` → `OPEN` history event with actor kind `USER`, the reporter ID, and the report's database-generated creation timestamp. PostgreSQL enforces history references, actor metadata, actual status changes, and at most one creation event per report. Triggers reject history UPDATE, DELETE, and TRUNCATE. The parent FK does not cascade; historical reports cannot be deleted while their history remains. The application is responsible for authenticating the actor, deriving faculty/participation, and inserting both rows atomically; raw administrative SQL is not an authenticated workflow.
+
+Migration 11 does not fabricate audit entries for older reports. Its 1–2000 UTF-8 byte/non-whitespace description constraint uses `NOT VALID`, preserving existing content while checking all new inserts and updates. Operators may validate it after reviewing legacy content under the approved retention policy; do not silently truncate or rewrite private reports. No automated retention deletion is added.
+
+Deploy migration 11 before the new API binary. Rolling back that migration deliberately drops the history table and removes the new constraint while retaining issue reports. Archive any required history before an intentional rollback; never run destructive migration tests on the developer's regular or shared database. The test runner exercises rollback only on its disposable database.
 
 ## Booking transaction contract
 

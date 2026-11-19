@@ -69,3 +69,7 @@ See the [Scheduling guide](docs/scheduling.md) for recurring availability, excep
 ## Background workers
 
 See the [worker guide](docs/workers.md) for expiration polling, SMTP delivery, retries, and Compose setup.
+
+## Coordination API
+
+See the [Coordination guide](docs/coordination.md) for faculty-scoped issue creation (FR10 / UC06), append-only issue history, attendance decisions, and Windows PowerShell test commands.

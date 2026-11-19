@@ -32,6 +32,7 @@ import (
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/security"
 	identityhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/interfaces/http"
 	scheduling "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/application"
+	schedulingdomain "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/domain"
 	schedulingpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/infrastructure/postgres"
 	schedulinghttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/interfaces/http"
 	tutoring "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/application"
@@ -167,6 +168,16 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		Sessions: schedulingpg.AttendanceSessions,
 	})
 	coordhttp.New(coordination.NewAttendance(attendanceRepo, time.Now), logger).RegisterRoutes(mux, identity)
+	issueRepo := coordpg.NewIssues(pool, coordpg.IssueDependencies{
+		LockStudent: postgres.LockStudent,
+		HomeFaculty: func(ctx context.Context, tx pgx.Tx, program string) (string, error) {
+			return catalog.New(catalogpostgres.InTransaction(tx)).GetProgramFaculty(ctx, program)
+		},
+		LockParticipantSession: func(ctx context.Context, tx pgx.Tx, id, actor string) (schedulingdomain.Session, error) {
+			return schedulingpg.AttendanceSessions(tx).LockParticipantSession(ctx, id, actor)
+		},
+	})
+	coordhttp.NewIssues(coordination.NewIssues(issueRepo), logger).RegisterRoutes(mux, identity)
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", "127.0.0.1:8080"),
 		Handler:           http.TimeoutHandler(mux, 10*time.Second, `{"error":"request timed out"}`),

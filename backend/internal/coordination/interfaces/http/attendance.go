@@ -1,6 +1,7 @@
 package coordinationhttp
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"unicode/utf8"
 
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/application"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/domain"
@@ -44,7 +46,15 @@ func read[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 	if err != nil || media != "application/json" {
 		return zero, errContent
 	}
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16*1024))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16*1024))
+	var size *http.MaxBytesError
+	if errors.As(err, &size) {
+		return zero, errTooLarge
+	}
+	if err != nil || !utf8.Valid(body) {
+		return zero, errMalformed
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	var item *T
 	err = dec.Decode(&item)
@@ -54,10 +64,6 @@ func read[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 		if errors.Is(err, io.EOF) {
 			return *item, nil
 		}
-	}
-	var size *http.MaxBytesError
-	if errors.As(err, &size) {
-		return zero, errTooLarge
 	}
 	return zero, errMalformed
 }

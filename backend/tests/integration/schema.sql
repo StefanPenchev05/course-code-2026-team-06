@@ -129,6 +129,26 @@ VALUES (fixture_id(51), fixture_id(11), '2030-02-01 08:00 UTC', '2030-02-01 22:0
 
 INSERT INTO feedback (session_id, rating) VALUES (:'booking_id', 5);
 SELECT expect_state('23505', 'INSERT INTO feedback (session_id, rating) SELECT session_id, 4 FROM feedback');
+
+-- General issues keep faculty/session integrity and append-only audit records.
+INSERT INTO issue_reports (id,reporter_user_id,faculty_id,session_id,description)
+VALUES (fixture_id(80),fixture_id(10),fixture_id(1),:'booking_id',repeat('é',1000));
+SELECT expect_state('23503', 'INSERT INTO issue_reports (reporter_user_id,faculty_id,session_id,description) SELECT reporter_user_id,fixture_id(2),session_id,''Wrong faculty'' FROM issue_reports WHERE id=fixture_id(80)');
+SELECT expect_state('23514', 'INSERT INTO issue_reports (reporter_user_id,faculty_id,description) VALUES(fixture_id(10),fixture_id(1),repeat(''é'',1001))');
+SELECT expect_state('23514', 'INSERT INTO issue_reports (reporter_user_id,faculty_id,description) VALUES(fixture_id(10),fixture_id(1),chr(9)||chr(160)||chr(12288))');
+INSERT INTO issue_status_history (issue_report_id,to_status,changed_at,actor_kind,changed_by_user_id)
+SELECT id,status,created_at,'USER',reporter_user_id FROM issue_reports WHERE id=fixture_id(80);
+SELECT expect_state('23505', 'INSERT INTO issue_status_history (issue_report_id,to_status,actor_kind,changed_by_user_id) VALUES(fixture_id(80),''OPEN'',''USER'',fixture_id(10))');
+SELECT expect_state('23503', 'INSERT INTO issue_status_history (issue_report_id,to_status,actor_kind,changed_by_user_id) VALUES(fixture_id(99),''OPEN'',''USER'',fixture_id(10))');
+SELECT expect_state('23514', 'INSERT INTO issue_status_history (issue_report_id,from_status,to_status,actor_kind) VALUES(fixture_id(80),''OPEN'',''RESOLVED'',''USER'')');
+SELECT expect_state('23514', 'INSERT INTO issue_status_history (issue_report_id,from_status,to_status,actor_kind,changed_by_user_id) VALUES(fixture_id(80),''OPEN'',''RESOLVED'',''SYSTEM'',fixture_id(10))');
+SELECT expect_state('23514', 'INSERT INTO issue_status_history (issue_report_id,from_status,to_status,actor_kind) VALUES(fixture_id(80),''OPEN'',''OPEN'',''SYSTEM'')');
+SELECT expect_state('23514', 'INSERT INTO issue_status_history (issue_report_id,to_status,actor_kind) VALUES(fixture_id(80),''RESOLVED'',''SYSTEM'')');
+SELECT expect_state('23514', 'UPDATE issue_status_history SET changed_at=now()');
+SELECT expect_state('23514', 'DELETE FROM issue_status_history');
+SELECT expect_state('23514', 'TRUNCATE issue_status_history');
+SELECT expect_state('23503', 'DELETE FROM issue_reports WHERE id=fixture_id(80)');
+
 INSERT INTO attendance_reports (id, session_id, reporter_user_id, absent_user_id, reported_at)
 VALUES (fixture_id(70), :'booking_id', fixture_id(10), fixture_id(11), '2030-02-01 08:30 UTC');
 SELECT expect_state('23514', 'UPDATE attendance_reports SET status = ''CONFIRMED'', reviewed_at = reported_at, resolution_note = ''Wrong faculty'', reviewed_by_coordinator_id = fixture_id(14)');
