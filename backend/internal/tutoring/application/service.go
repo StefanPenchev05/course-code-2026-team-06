@@ -27,15 +27,12 @@ type ReviewRecord struct {
 }
 
 type Transaction interface {
-	Student(context.Context, string) (identity.Principal, error)
+	EligibilityTransaction
 	CoordinatorFaculty(context.Context, string) (string, error)
-	Catalog() catalog.AcademicCatalog
 	ActiveOffering(ctx context.Context, student, subject string) (bool, error)
 	CreateApplication(ctx context.Context, student, faculty string, input Submission) (string, error)
 	ReviewRecord(ctx context.Context, id, faculty string, lock bool) (ReviewRecord, error)
 	Decide(ctx context.Context, record ReviewRecord, reviewer string, status domain.Status, reason string) error
-	ActiveOfferings(ctx context.Context, student string) ([]domain.Offering, error)
-	Deactivate(ctx context.Context, offeringID string) error
 }
 
 type Repository interface {
@@ -286,33 +283,4 @@ func (s *Service) GetApprovedOffering(ctx context.Context, tutor, subject string
 		return domain.Offering{}, domain.ErrInvalid
 	}
 	return s.repo.ApprovedOffering(ctx, tutor, subject)
-}
-
-// RevalidateTutorEligibility withdraws ineligible offerings without modifying existing sessions.
-func (s *Service) RevalidateTutorEligibility(ctx context.Context, studentID string) error {
-	if !uuid.MatchString(studentID) {
-		return domain.ErrInvalid
-	}
-	return s.repo.InTransaction(ctx, func(tx Transaction) error {
-		student, err := tx.Student(ctx, studentID)
-		if err != nil {
-			return err
-		}
-		offerings, err := tx.ActiveOfferings(ctx, studentID)
-		if err != nil {
-			return err
-		}
-		for _, offering := range offerings {
-			ok, err := tx.Catalog().SubjectBelongsToProgram(ctx, student.ProgramID, offering.SubjectID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				if err := tx.Deactivate(ctx, offering.ID); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
 }
