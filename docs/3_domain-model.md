@@ -1,5 +1,8 @@
 # 3 Domain Model (Stefan)
 
+> **Historical model:** The original diagrams and explanatory model below are retained as Deliverable 1 evidence, not current normative rules. In particular, multi-subject applications, uniform 48-hour expiry and current-semester strike reset descriptions are superseded by the [current requirements](1.3-1.4_user-story_mapping--requirement_analysis.md) and [decisions D02–D08](requirements-decisions.md). Use the [traceability matrix](requirements-traceability.md) for current implementation status.
+
+
 The class diagram captures the concepts Tutti must remember, their attributes and relationships. Derived attributes are marked with "/" and their formulas, like the business rules, are given in the notes.
 
 ![UML class diagram of the Tutti domain model](images/fig07_domain_model.jpg)

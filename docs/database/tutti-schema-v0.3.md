@@ -1,5 +1,8 @@
 # Tutti — Database Schema v0.3
 
+> **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](../requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
+
+
 **Status:** Policy-approved relational design. See the [PostgreSQL implementation and verification instructions](implementation.md).
 
 **Basis:** Deliverable 1 and Team 6 architecture documentation, database v0.2, and decisions agreed in the conversation through 16 November 2026.  
