@@ -3,7 +3,7 @@
 > **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](../requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
 
 
-The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
+The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Migration 11 adds issue history, bringing the current total to 32; migration 12 supports issue resolution without adding tables. Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
 
 | Migration | Domain and key constraints |
 | --- | --- |
@@ -18,6 +18,7 @@ The first eight paired [migrations](../../backend/migrations/) create all 31 tab
 | 9 | Email outbox delivery leases, attempts, retry schedule, failure category, and a pending-delivery index. |
 | 10 | Outbox notification types for attendance reports and decisions. |
 | 11 | Append-only issue status history, one creation event per report, and bounded new issue descriptions. |
+| 12 | Bounded resolution notes and description validation on inserts/actual changes, allowing resolution to preserve legacy evidence. |
 
 ## Local commands
 
@@ -52,7 +53,7 @@ The integration runner requires Docker, Python 3, `migrate`, and PostgreSQL clie
 python3 backend/tests/integration/test_schema.py
 ```
 
-The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It verifies the migration 10 → 11 upgrade with legacy issue data, all eleven rollbacks, and replays the migrations from empty. On Windows, `.\backend\tests\integration\test_docker.ps1` runs these checks using the existing Dockerfile and disposable containers, without native database tooling or changes to Compose services.
+The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It verifies upgrade 10 → 11 → 12 with legacy issue data, authentic legacy resolution, migration 12 rollback without losing history, all twelve rollbacks, and replays the migrations from empty. On Windows, `.\backend\tests\integration\test_docker.ps1` runs these checks using the existing Dockerfile and disposable containers, without native database tooling or changes to Compose services.
 
 ## Issue creation transaction contract
 
@@ -60,9 +61,19 @@ The [Coordination issue service](../coordination.md#general-issue-reporting-fr10
 
 New reports begin `OPEN` and write a `NULL` → `OPEN` history event with actor kind `USER`, the reporter ID, and the report's database-generated creation timestamp. PostgreSQL enforces history references, actor metadata, actual status changes, and at most one creation event per report. Triggers reject history UPDATE, DELETE, and TRUNCATE. The parent FK does not cascade; historical reports cannot be deleted while their history remains. The application is responsible for authenticating the actor, deriving faculty/participation, and inserting both rows atomically; raw administrative SQL is not an authenticated workflow.
 
-Migration 11 does not fabricate audit entries for older reports. Its 1–2000 UTF-8 byte/non-whitespace description constraint uses `NOT VALID`, preserving existing content while checking all new inserts and updates. Operators may validate it after reviewing legacy content under the approved retention policy; do not silently truncate or rewrite private reports. No automated retention deletion is added.
+Migration 11 does not fabricate audit entries for older reports. Its 1–2000 UTF-8 byte/non-whitespace description constraint uses `NOT VALID`. Because PostgreSQL still checks new versions of existing rows, that constraint would reject resolution of oversized legacy evidence. Migration 12 replaces it with an insert/update-of-description trigger that validates new or actually changed descriptions. Unchanged original evidence remains intact. New descriptions retain the same bounds, and no automated retention deletion is added.
 
 Deploy migration 11 before the new API binary. Rolling back that migration deliberately drops the history table and removes the new constraint while retaining issue reports. Archive any required history before an intentional rollback; never run destructive migration tests on the developer's regular or shared database. The test runner exercises rollback only on its disposable database.
+
+## Issue inbox and resolution transaction contract
+
+Issue #22 / FR17 / UC13 extends the same Coordination service. Reads join the active coordinator's current assignment against `issue_reports.faculty_id`; they never infer report ownership from a student's current program. The existing faculty/status/creation-time index supports bounded `OPEN` or `RESOLVED` inbox queries ordered by creation time and ID.
+
+Resolution locks the current Identity coordinator assignment/account (`FOR SHARE`) before the scoped report (`FOR UPDATE`). It permits only `OPEN` → `RESOLVED`, updates resolver/note/time with a conditional `WHERE status='OPEN'`, and appends the transition with matching actor/time. Both statements share one transaction. The retained report contains the note referenced by the history record. A failed history insert rolls back the update; concurrent or duplicate resolution returns conflict. Creation history and original evidence remain untouched. Legacy reports need no fabricated creation event to receive a new authentic resolution event.
+
+Migration 12 adds a `NOT VALID` check requiring a non-whitespace resolution note of at most 2000 UTF-8 bytes for newly written resolved rows. Existing timestamp, resolver and composite faculty foreign keys remain in force. The append-only history triggers remain unchanged. General issue resolution writes no session, attendance, violation, flag, or notification data.
+
+Apply migration 12 before deploying the inbox/resolution API. Its down migration drops only the new validation machinery and reinstates migration 11's `NOT VALID` description check; it deletes no reports or history. After rollback, oversized legacy descriptions are readable but cannot be updated until migration 12 is reapplied. Older down migrations remain destructive. Existing composite reviewer foreign keys also constrain coordinator reassignment/deletion after review; changing that historical model is separate work.
 
 ## Booking transaction contract
 

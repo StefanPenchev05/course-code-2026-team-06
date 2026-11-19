@@ -34,9 +34,43 @@ The application uses explicit transaction-bound Identity, Catalog, and Schedulin
 
 Migration `000011` adds `issue_status_history` to the existing `issue_reports` table's workflow. Each new API report has one creation event (`NULL` → `OPEN`), its authenticated actor, and the exact persisted creation timestamp. Foreign keys retain the parent report, a partial unique index prevents duplicate creation events, and triggers reject history updates, deletes, and truncation. No report edit/delete or audit mutation endpoint is exposed. Repeating POST creates a separate report with its own history; this endpoint does not promise request deduplication.
 
-Existing reports are retained without synthetic history. The new description bound is `NOT VALID` to preserve legacy descriptions; it still enforces every new insert or update. See [migration and retention details](database/implementation.md#issue-creation-transaction-contract).
+Existing reports are retained without synthetic history. Migration 11 introduced a `NOT VALID` description bound. Migration 12 moves that validation to inserts and actual description changes, allowing resolution to retain legacy evidence that exceeds today's limit. See [migration and retention details](database/implementation.md#issue-creation-transaction-contract).
 
-This milestone implements creation and durable faculty ownership. Coordinator listing, reading, resolution, a dashboard, notifications, and suspension workflows are outside this slice. No issue query endpoint is published, including for coordinators. Future query/review capabilities must enforce stored faculty scope on the server and append history in the same transaction as each transition. General reports do not automatically create attendance violations or change session outcomes.
+## Coordinator issue inbox and resolution (FR17 / UC13, Issue #22)
+
+General reports have the existing lifecycle `OPEN` → `RESOLVED`. These routes require an authenticated, active coordinator. Coordinator authority is independent of student verification: a coordinator who also has a pending student role retains coordinator access. Student-only and tutor-only users cannot use these routes. Closed/suspended accounts and removed coordinator assignments are denied by Identity.
+
+| Method and path (prefix `/api/v1`) | Result |
+| --- | --- |
+| `GET /coordinator/issues` | Faculty-scoped inbox, default status `OPEN`. |
+| `GET /coordinator/issues/{id}` | Own-faculty report, including stored resolution information. |
+| `POST /coordinator/issues/{id}/resolve` | One-time resolution with a required note; returns 200. Requires the configured same-origin header. |
+
+Every query joins the caller's current coordinator assignment and active account to the report's **stored faculty**. Ownership is not recomputed from the reporter's current program. A caller cannot select another faculty via a query parameter or request body. Missing and other-faculty reports return the same 404 error. Detail and inbox reads are read-only and use `Cache-Control: no-store`.
+
+The inbox supports `status=OPEN|RESOLVED`, `limit` (1–100, default 25), and `offset` (0–100000, default 0). Results order by `created_at` ascending, then `id` ascending. Unknown/duplicate query parameters and malformed integers return 400; unsupported status or out-of-range pagination returns 422. An empty inbox returns `data: []`. The response uses the existing pagination contract:
+
+```json
+{"data":[],"pagination":{"limit":25,"offset":0,"has_more":false}}
+```
+
+Use `?status=RESOLVED` to review historical reports. Offset pagination provides deterministic ordering within each query, not a snapshot across requests; concurrent inserts or resolutions can shift later pages. Responses contain the existing report fields and, when resolved, `handled_by_coordinator_id`, `resolved_at`, and `resolution_note`. Single-report responses use the `data` envelope. No unrelated account fields, credentials, grades, or private feedback are joined into these DTOs. Audit events remain in PostgreSQL; no separate history endpoint is exposed.
+
+Resolve with only:
+
+```json
+{"resolution_note":"I reviewed the evidence with the participants and documented the agreed outcome."}
+```
+
+Notes use the same trimming, Unicode, NUL rejection, and 1–2000 UTF-8 byte limit as descriptions. The request retains the 16 KiB body cap and strict JSON decoding. Missing/blank/oversized notes return 422; malformed JSON, raw invalid UTF-8, multiple JSON values, invalid field types, and unsupported fields return 400. Oversized bodies return 413; unsupported content types return 415. Identity determines the resolver, PostgreSQL supplies the timestamp, and the backend controls status. Supplied resolver, faculty, status, timestamp, or actor fields are rejected.
+
+Resolution takes Identity's transaction-bound `LockCoordinatorFaculty` lock before locking the faculty-scoped issue row. It rechecks `OPEN`, conditionally updates only status/resolver/note/time, and appends an `OPEN` → `RESOLVED` event in `issue_status_history` with the exact stored resolver and resolution time. Original reporter, faculty, session, description, creation time, and creation history remain unchanged. The history's report FK references the retained resolution note. History insertion failure or transaction cancellation rolls the update back. Repeated or losing concurrent requests return 409 without overwriting the winning decision or appending another event.
+
+The existing schema permits one coordinator per faculty, so competing authorized requests are tested from that coordinator. Reassignment, removal, suspension, and closure are rechecked under Identity's locks. Existing historical reviewer foreign keys can prevent later coordinator reassignment/deletion; this milestone preserves those constraints and does not add an account-management workflow.
+
+Legacy reports without creation history can be listed, inspected and resolved. Resolution appends only the authentic new event. Migration `000012` preserves legacy descriptions, adds a database bound for resolution notes, and reuses the existing faculty/status/time index. Apply migration 12 before deploying this API. Its down migration preserves reports/history and restores migration 11's validation behavior, which again prevents updating legacy oversized descriptions.
+
+General issue resolution does not change session outcomes, create attendance reports/violations/flags, suspend users, or queue attendance emails. Reopening, editing/deletion, resolution revisions, notifications, a coordinator dashboard, and student-facing report queries remain outside Issue #22. The current Identity session implementation is reused; the separate approved SSO migration remains outside this task.
 
 ## Attendance API
 
@@ -97,7 +131,7 @@ python3 backend/tests/integration/test_schema.py
 On Windows PowerShell with Docker Desktop using Linux containers, run from the repository root (no local Go, database clients, `.env` changes, or SMTP credentials needed):
 
 ```powershell
-# Rebuild using the existing Dockerfile and run issue authorization tests only.
+# Rebuild and run issue creation plus coordinator inbox/resolution authorization tests.
 .\backend\tests\integration\test_docker.ps1 -IssuesOnly
 
 # Full formatting, vet, race, build, real-service regressions and migration checks.
@@ -106,4 +140,4 @@ On Windows PowerShell with Docker Desktop using Linux containers, run from the r
 
 Both commands build the existing runtime and test targets and create isolated, disposable PostgreSQL/Redis test containers. The targeted issue run starts no worker. The full regression run exercises notifications using its local SMTP fixture. Neither command uses the developer's Compose database, changes its port, or removes its volumes. `-IssuesOnly` and `-NotificationsOnly` are mutually exclusive.
 
-`TestIssueReporting` authenticates real users from two faculties (plus a faculty without a coordinator), exercises student/tutor and cross-faculty links, tests unknown/missing session privacy, strict input bounds, injected audit failure, append-only history, concurrent submissions, and lock-controlled program/suspension races. Unit tests cover all session statuses, stale roles, missing faculty, and storage failures. The schema suite verifies upgrade with legacy report data, integrity constraints, complete rollback, and reapplication. Existing attendance tests cover concurrent completion/reporting, conflicting decisions, faculty isolation, threshold routing, and rollback after failed audit writes.
+`TestIssueReporting` includes `coordinator_inbox_and_resolution` as well as the original creation regression tests. The coordinator suite checks multiple/empty faculty inboxes, stable pagination, historical detail, required notes and strict JSON, role and cross-faculty denials, stored ownership after a reporter moves, legacy evidence, failed audit/update rollback, one winning concurrent resolution, and lock-controlled coordinator reassignment/removal/suspension/closure and cancellation. It also verifies that general issue handling leaves scheduling, discipline and notifications unchanged. The schema suite tests actual legacy-data upgrade through migrations 11 and 12, migration 12 rollback without data loss, constraints, complete rollback, and reapplication. Existing attendance tests cover concurrent completion/reporting, conflicting decisions, faculty isolation, threshold routing, and rollback after failed audit writes.

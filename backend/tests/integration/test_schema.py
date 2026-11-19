@@ -125,12 +125,38 @@ def main():
             INSERT INTO issue_reports(reporter_user_id,faculty_id,description)
             SELECT reporter.id,faculty.id,repeat('x',2001) FROM reporter,faculty;
         """)
-        run(*migrate, "up")
+        run(*migrate, "up", "1")
         if output(*psql, "-Atc", """
             SELECT (SELECT count(*) FROM issue_reports WHERE description=repeat('x',2001)),
                    (SELECT count(*) FROM issue_status_history)
         """) != "1|0":
             raise RuntimeError("issue upgrade changed legacy data or invented history")
+        run(*migrate, "up")
+        run(*psql, "-q", "-c", """
+            BEGIN;
+            WITH reviewer AS (
+                INSERT INTO users(name,email) VALUES('Legacy reviewer','legacy-reviewer@example.test') RETURNING id
+            ) INSERT INTO coordinators(user_id,employee_number,faculty_id)
+              SELECT reviewer.id,'LEGACY-REVIEWER',f.id FROM reviewer,faculties f WHERE f.name='Legacy issue faculty';
+            UPDATE issue_reports r SET status='RESOLVED',resolution_note='Reviewed authentic legacy evidence',
+                resolved_at=statement_timestamp(),handled_by_coordinator_id=c.user_id
+              FROM coordinators c WHERE c.faculty_id=r.faculty_id AND c.employee_number='LEGACY-REVIEWER';
+            INSERT INTO issue_status_history(issue_report_id,from_status,to_status,changed_at,actor_kind,changed_by_user_id)
+              SELECT id,'OPEN',status,resolved_at,'USER',handled_by_coordinator_id FROM issue_reports;
+            COMMIT;
+        """)
+        legacy_query = """
+            SELECT (SELECT count(*) FROM issue_reports WHERE description=repeat('x',2001) AND status='RESOLVED'),
+                   (SELECT count(*) FROM issue_status_history WHERE from_status='OPEN' AND to_status='RESOLVED')
+        """
+        if output(*psql, "-Atc", legacy_query) != "1|1":
+            raise RuntimeError("legacy report could not be resolved without losing evidence")
+        # Rolling back only 12 must preserve reports and history, including the
+        # legacy text that migration 11 intentionally left NOT VALID.
+        run(*migrate, "down", "1")
+        if output(*psql, "-Atc", legacy_query) != "1|1":
+            raise RuntimeError("resolution rollback changed evidence/history")
+        run(*migrate, "up")
         check_tables(psql, EXPECTED_TABLES)
         run(*psql, "-q", "-f", str(TESTS / "schema.sql"), stdout=subprocess.DEVNULL)
         check_concurrency(psql)
@@ -139,7 +165,7 @@ def main():
         check_tables(psql, set())
         run(*migrate, "up")
         check_tables(psql, EXPECTED_TABLES)
-        print("PASS: all 32 tables, legacy issue upgrade, integrity checks, concurrent exclusion, complete rollback and reapply.")
+        print("PASS: all 32 tables, legacy issue upgrade/resolution, non-destructive migration 12 rollback, integrity checks, concurrent exclusion, complete rollback and reapply.")
     except Exception:
         run("docker", "logs", "--tail", "20", container)
         raise

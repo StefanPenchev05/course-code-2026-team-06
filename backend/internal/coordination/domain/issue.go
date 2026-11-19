@@ -12,7 +12,12 @@ var (
 
 type IssueStatus string
 
-const IssueOpen IssueStatus = "OPEN"
+const (
+	IssueOpen     IssueStatus = "OPEN"
+	IssueResolved IssueStatus = "RESOLVED"
+)
+
+func (s IssueStatus) Valid() bool { return s == IssueOpen || s == IssueResolved }
 
 // Issue uses the existing issue_reports schema. Resolution is a separate use case.
 type Issue struct {
@@ -23,6 +28,16 @@ type Issue struct {
 	Description string      `json:"description"`
 	Status      IssueStatus `json:"status"`
 	CreatedAt   time.Time   `json:"created_at"`
+	ResolvedAt  *time.Time  `json:"resolved_at,omitempty"`
+	ResolverID  string      `json:"handled_by_coordinator_id,omitempty"`
+	Resolution  string      `json:"resolution_note,omitempty"`
+}
+
+func (r Issue) ValidateResolution() error {
+	if r.Status != IssueOpen {
+		return ErrIssueConflict
+	}
+	return nil
 }
 
 type IssueInput struct {

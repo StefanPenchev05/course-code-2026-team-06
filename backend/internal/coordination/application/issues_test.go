@@ -30,6 +30,9 @@ type issueStore struct {
 	calls                                                                []string
 	inserted, history                                                    domain.Issue
 	committed                                                            bool
+	report, resolved                                                     domain.Issue
+	coordinator                                                          string
+	coordinatorErr, lockErr, resolveErr, resolutionHistoryErr, readErr   error
 }
 
 func (f *issueStore) Transact(ctx context.Context, work func(IssueTx) error) error {

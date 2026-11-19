@@ -55,6 +55,7 @@ type issueFixture struct {
 	a       api
 	cookies map[int]*http.Cookie
 	logs    *bytes.Buffer
+	repo    *coordpg.IssueRepository
 }
 
 func newIssueFixture(t *testing.T) *issueFixture {
@@ -96,7 +97,8 @@ func newIssueFixture(t *testing.T) *issueFixture {
 	mux := http.NewServeMux()
 	auth.RegisterRoutes(mux)
 	repo := coordpg.NewIssues(db, coordpg.IssueDependencies{
-		LockStudent: identitypg.LockStudent,
+		LockStudent:            identitypg.LockStudent,
+		LockCoordinatorFaculty: identitypg.LockCoordinatorFaculty,
 		HomeFaculty: func(ctx context.Context, tx pgx.Tx, program string) (string, error) {
 			return catalog.New(catalogpg.InTransaction(tx)).GetProgramFaculty(ctx, program)
 		},
@@ -105,7 +107,7 @@ func newIssueFixture(t *testing.T) *issueFixture {
 		},
 	})
 	coordhttp.NewIssues(coordination.NewIssues(repo), logger).RegisterRoutes(mux, auth)
-	f := &issueFixture{ctx: ctx, db: db, a: api{mux}, cookies: map[int]*http.Cookie{}, logs: logs}
+	f := &issueFixture{ctx: ctx, db: db, a: api{mux}, cookies: map[int]*http.Cookie{}, logs: logs, repo: repo}
 	for n := 1; n <= 3; n++ {
 		f.exec(t, "INSERT INTO faculties(id,name) VALUES($1,$2)", fixture(1700+n), fmt.Sprintf("Issue faculty %d", n))
 		f.exec(t, "INSERT INTO programs VALUES($1,$2,$3,'BACHELOR')", fixture(1710+n), fixture(1700+n), fmt.Sprintf("Issue program %d", n))
@@ -235,6 +237,7 @@ func (f *issueFixture) assertCreated(t *testing.T, w *httptest.ResponseRecorder,
 
 func TestIssueReporting(t *testing.T) {
 	f := newIssueFixture(t)
+	t.Run("coordinator inbox and resolution", f.testCoordinatorIssues)
 	valid := map[string]any{"description": "  Private issue — 学生\n"}
 	var first string
 	t.Run("trusted faculty and participant routing", func(t *testing.T) {
@@ -282,12 +285,18 @@ func TestIssueReporting(t *testing.T) {
 				t.Fatal("session existence disclosed")
 			}
 		}
-		// No report reads, edits, deletes or coordinator inbox APIs are published in this slice.
+		// Participant read/edit/delete APIs remain unpublished; coordinator detail is scoped.
 		for _, actor := range []int{issueStudentA, issueStudentB, issueCoordinatorA, issueCoordinatorB} {
 			for _, method := range []string{"GET", "PATCH", "DELETE"} {
 				f.a.call(t, 404, method, "/issues/"+first, nil, f.cookies[actor])
 			}
-			f.a.call(t, 404, "GET", "/coordinator/issues/"+first, nil, f.cookies[actor])
+			code := 403
+			if actor == issueCoordinatorA {
+				code = 200
+			} else if actor == issueCoordinatorB {
+				code = 404
+			}
+			f.a.call(t, code, "GET", "/coordinator/issues/"+first, nil, f.cookies[actor])
 		}
 		after, afterHistory := f.counts(t)
 		if after != before || afterHistory != history {

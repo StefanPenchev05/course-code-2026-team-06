@@ -148,6 +148,13 @@ SELECT expect_state('23514', 'UPDATE issue_status_history SET changed_at=now()')
 SELECT expect_state('23514', 'DELETE FROM issue_status_history');
 SELECT expect_state('23514', 'TRUNCATE issue_status_history');
 SELECT expect_state('23503', 'DELETE FROM issue_reports WHERE id=fixture_id(80)');
+SELECT expect_state('23514', 'UPDATE issue_reports SET description=repeat(''x'',2001) WHERE id=fixture_id(80)');
+SELECT expect_state('23514', 'UPDATE issue_reports SET status=''RESOLVED'',resolved_at=now(),handled_by_coordinator_id=fixture_id(13),resolution_note=chr(160)||chr(12288) WHERE id=fixture_id(80)');
+SELECT expect_state('23514', 'UPDATE issue_reports SET status=''RESOLVED'',resolved_at=now(),handled_by_coordinator_id=fixture_id(13),resolution_note=repeat(''é'',1001) WHERE id=fixture_id(80)');
+SELECT expect_state('23503', 'UPDATE issue_reports SET status=''RESOLVED'',resolved_at=now(),handled_by_coordinator_id=fixture_id(14),resolution_note=''Wrong faculty'' WHERE id=fixture_id(80)');
+UPDATE issue_reports SET status='RESOLVED',resolved_at=now(),handled_by_coordinator_id=fixture_id(13),resolution_note=repeat('é',1000) WHERE id=fixture_id(80);
+INSERT INTO issue_status_history(issue_report_id,from_status,to_status,changed_at,actor_kind,changed_by_user_id)
+SELECT id,'OPEN',status,resolved_at,'USER',handled_by_coordinator_id FROM issue_reports WHERE id=fixture_id(80);
 
 INSERT INTO attendance_reports (id, session_id, reporter_user_id, absent_user_id, reported_at)
 VALUES (fixture_id(70), :'booking_id', fixture_id(10), fixture_id(11), '2030-02-01 08:30 UTC');

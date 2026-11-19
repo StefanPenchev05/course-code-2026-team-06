@@ -169,7 +169,8 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 	})
 	coordhttp.New(coordination.NewAttendance(attendanceRepo, time.Now), logger).RegisterRoutes(mux, identity)
 	issueRepo := coordpg.NewIssues(pool, coordpg.IssueDependencies{
-		LockStudent: postgres.LockStudent,
+		LockStudent:            postgres.LockStudent,
+		LockCoordinatorFaculty: postgres.LockCoordinatorFaculty,
 		HomeFaculty: func(ctx context.Context, tx pgx.Tx, program string) (string, error) {
 			return catalog.New(catalogpostgres.InTransaction(tx)).GetProgramFaculty(ctx, program)
 		},
