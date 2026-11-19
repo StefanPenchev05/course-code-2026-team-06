@@ -3,7 +3,7 @@
 > **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](../requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
 
 
-The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Migration 11 adds issue history, bringing the current total to 32; migration 12 supports issue resolution without adding tables. Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
+The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Migration 11 adds issue history, bringing the current total to 32; migrations 12 and 13 support issue resolution and cancellation-origin audit without adding tables. Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
 
 | Migration | Domain and key constraints |
 | --- | --- |
@@ -19,6 +19,7 @@ The first eight paired [migrations](../../backend/migrations/) create all 31 tab
 | 10 | Outbox notification types for attendance reports and decisions. |
 | 11 | Append-only issue status history, one creation event per report, and bounded new issue descriptions. |
 | 12 | Bounded resolution notes and description validation on inserts/actual changes, allowing resolution to preserve legacy evidence. |
+| 13 | Explicit participant/policy cancellation origin in session history, preserving unknown legacy origins and guarding against rollback evidence loss. |
 
 ## Local commands
 
@@ -53,7 +54,45 @@ The integration runner requires Docker, Python 3, `migrate`, and PostgreSQL clie
 python3 backend/tests/integration/test_schema.py
 ```
 
-The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It verifies upgrade 10 → 11 → 12 with legacy issue data, authentic legacy resolution, migration 12 rollback without losing history, all twelve rollbacks, and replays the migrations from empty. On Windows, `.\backend\tests\integration\test_docker.ps1` runs these checks using the existing Dockerfile and disposable containers, without native database tooling or changes to Compose services.
+The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It verifies upgrade 10 → 11 → 12 with legacy issue data, authentic legacy resolution, migration 12 rollback without losing history, migration 13 constraints/legacy-history preservation/rollback guard, all thirteen rollbacks on disposable fixtures, and replays the migrations from empty. On Windows, `.\backend\tests\integration\test_docker.ps1` runs these checks using the existing Dockerfile and disposable containers, without native database tooling or changes to Compose services.
+
+## Policy cancellation transaction contract
+
+Issue #24 / FR19 / UC04 uses Coordination's authenticated coordinator service and
+Scheduling's injected transaction-bound cancellation adapter. Identity locks the
+active coordinator assignment/account before Scheduling locks the session by ID
+and immutable faculty. Only `REQUESTED`/`ACCEPTED` can become `CANCELLED`; no new
+timing cutoff is imposed. Participant eligibility is irrelevant to this authority,
+and no participant account locks or discipline writes follow the session lock.
+Existing lifecycle writers serialize on the same row.
+
+One transaction persists cancellation actor/reason/time with a false late flag,
+releases both participant blocks through existing triggers, appends history, and
+queues `SESSION_CANCELLED` for both participants. History/outbox failure restores
+the original session and both reservations. No trigger, reservation table, state,
+notification enum or disciplinary rule is duplicated. Existing faculty/session
+indexes and the session primary key support the scoped lookup.
+
+[Migration 13](../../backend/migrations/000013_policy_cancellation.up.sql) adds the
+nullable `session_status_history.cancellation_origin` text column. Non-null values
+must be `PARTICIPANT` or `COORDINATOR_POLICY`, on a `USER` transition from
+`REQUESTED`/`ACCEPTED` to `CANCELLED` with a nonblank reason of 1–2000 UTF-8 bytes.
+Existing history is untouched, including legacy reasons outside today's bounds;
+null means unknown/not applicable. Do not infer historical capacity from current
+coordinator assignments. New application cancellations set their explicit origin;
+the application supplies trusted actor, authority and transactional consistency.
+This adds no general session-history mutation API or retention job.
+
+Apply migration 13 before updated API **and worker** binaries: their shared event
+writer now includes the column for all session events. An older binary remains
+schema-compatible after the additive upgrade, but cannot record explicit origins;
+use the updated API for policy actions. The [down migration](../../backend/migrations/000013_policy_cancellation.down.sql)
+takes an exclusive history-table lock and refuses to drop the column if any origin
+has been recorded, including participant origins. With no such records, rollback
+drops only the new column/check and preserves prior history. Stop updated writers
+and restore compatible binaries before an intentional rollback. Never delete
+history to bypass the retention guard. Migration testing does not alter the
+developer's database; exact PowerShell commands are in [Coordination](../coordination.md#windows-verification-and-migration-order).
 
 ## Issue creation transaction contract
 

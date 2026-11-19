@@ -95,6 +95,51 @@ def check_concurrency(psql):
         raise RuntimeError(f"expected one committed booking with two blocks, got {counts}")
 
 
+def check_policy_cancellation_migration(psql, migrate):
+    # Only this disposable schema fixture is used. Legacy rows have unknown
+    # origin, including oversized old reasons that must remain untouched.
+    legacy_id = output(*psql, "-qAtc", """
+        INSERT INTO session_status_history
+            (session_id,from_status,to_status,actor_kind,changed_by_user_id,reason)
+        SELECT id,'REQUESTED','CANCELLED','USER',cancelled_by_user_id,repeat('x',2001)
+        FROM tutoring_sessions WHERE status='CANCELLED' ORDER BY id LIMIT 1
+        RETURNING id;
+    """)
+    if not legacy_id:
+        raise RuntimeError("missing legacy cancellation fixture")
+    legacy_query = f"SELECT to_jsonb(h)::text FROM session_status_history h WHERE id='{legacy_id}'"
+    before = output(*psql, "-Atc", legacy_query)
+    insert = """
+        INSERT INTO session_status_history
+            (session_id,from_status,to_status,actor_kind,changed_by_user_id,reason,cancellation_origin)
+        SELECT id,'REQUESTED','CANCELLED','USER',cancelled_by_user_id,'Policy fixture','COORDINATOR_POLICY'
+        FROM tutoring_sessions WHERE status='CANCELLED' ORDER BY id LIMIT 1;
+    """
+    for old, new in [("'COORDINATOR_POLICY'", "'CLIENT_SELECTED'"),
+                     ("'Policy fixture'", "NULL"), ("'Policy fixture'", "'  '"),
+                     ("'Policy fixture'", "repeat('x',2001)"),
+                     ("'REQUESTED'", "'COMPLETED'"), ("'REQUESTED'", "NULL")]:
+        statement = insert.replace(old, new)
+        run(*psql, "-q", "-c", f"SELECT tutti_test.expect_state('23514',$test${statement}$test$)",
+            stdout=subprocess.DEVNULL)
+    for origin in ["PARTICIPANT", "COORDINATOR_POLICY"]:
+        run(*psql, "-q", "-c", "BEGIN;" + insert.replace("COORDINATOR_POLICY", origin) + "ROLLBACK;")
+    # Execute the actual down script with a synthetic marked event in the same
+    # transaction. Its rejection rolls the entire fixture back on disconnect;
+    # no history is deleted and migrate's version metadata stays clean.
+    down = (MIGRATIONS / "000013_policy_cancellation.down.sql").read_text()
+    rejected = subprocess.run([*psql, "-q", "-c", "BEGIN;" + insert + down],
+                              text=True, capture_output=True, timeout=30)
+    if rejected.returncode == 0 or "cannot remove cancellation origin" not in rejected.stderr:
+        raise RuntimeError("migration 13 failed to protect recorded cancellation origins")
+    if output(*psql, "-Atc", legacy_query) != before:
+        raise RuntimeError("guarded rollback changed legacy cancellation history")
+    run(*migrate, "down", "1")
+    run(*migrate, "up")
+    if output(*psql, "-Atc", legacy_query) != before:
+        raise RuntimeError("migration 13 rollback/reapply changed legacy cancellation history")
+
+
 def main():
     network = os.environ.get("TUTTI_TEST_DOCKER_NETWORK")
     network_args = ["--network", network, "--network-alias", "schema-postgres"] if network else ["-p", "127.0.0.1::5432"]
@@ -131,7 +176,7 @@ def main():
                    (SELECT count(*) FROM issue_status_history)
         """) != "1|0":
             raise RuntimeError("issue upgrade changed legacy data or invented history")
-        run(*migrate, "up")
+        run(*migrate, "up", "1")  # 12: test its independent rollback before 13.
         run(*psql, "-q", "-c", """
             BEGIN;
             WITH reviewer AS (
@@ -159,13 +204,14 @@ def main():
         run(*migrate, "up")
         check_tables(psql, EXPECTED_TABLES)
         run(*psql, "-q", "-f", str(TESTS / "schema.sql"), stdout=subprocess.DEVNULL)
+        check_policy_cancellation_migration(psql, migrate)
         check_concurrency(psql)
         run(*psql, "-q", "-c", "DROP SCHEMA tutti_test CASCADE", stderr=subprocess.DEVNULL)
         run(*migrate, "down", "-all")
         check_tables(psql, set())
         run(*migrate, "up")
         check_tables(psql, EXPECTED_TABLES)
-        print("PASS: all 32 tables, legacy issue upgrade/resolution, non-destructive migration 12 rollback, integrity checks, concurrent exclusion, complete rollback and reapply.")
+        print("PASS: all 32 tables, legacy issue upgrade/resolution, migrations 12/13 rollback, cancellation-origin constraints and retention guard, integrity checks, concurrent exclusion, complete rollback and reapply.")
     except Exception:
         run("docker", "logs", "--tail", "20", container)
         raise

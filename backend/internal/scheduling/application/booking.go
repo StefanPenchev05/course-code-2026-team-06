@@ -36,6 +36,7 @@ type BookingTransaction interface {
 }
 
 type Event struct {
+	CancellationOrigin       domain.CancellationOrigin
 	SessionID, Actor, Reason string
 	From, To                 domain.Status
 	At                       time.Time
@@ -263,7 +264,11 @@ func (s *BookingService) respond(ctx context.Context, actor identity.Principal, 
 				return err
 			}
 		}
-		if err := tx.RecordEvent(ctx, Event{SessionID: id, Actor: actor.ID, From: previous, To: to, At: now, Reason: reason, Recipients: []string{recipient}}); err != nil {
+		var origin domain.CancellationOrigin
+		if to == domain.Cancelled {
+			origin = domain.ParticipantCancellation
+		}
+		if err := tx.RecordEvent(ctx, Event{SessionID: id, Actor: actor.ID, From: previous, To: to, At: now, Reason: reason, Recipients: []string{recipient}, CancellationOrigin: origin}); err != nil {
 			return err
 		}
 		result = session

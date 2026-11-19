@@ -1,4 +1,4 @@
-# Coordination: monitoring, issue reports and attendance decisions
+# Coordination: monitoring, policy cancellation, issue reports and attendance decisions
 
 ## Tutor monitoring and faculty statistics (FR16 / UC12, Issue #23)
 
@@ -132,6 +132,123 @@ support the queries. Lists batch activity lookups; schedules and offerings are
 bounded. Faculty totals still aggregate qualifying history; production-scale load
 testing remains separate. Frontend, SSO, sanctions, sponsor exports, upcoming-count
 analytics and new SMTP work are outside this issue.
+
+## Policy-based session cancellation (FR19 / UC04, Issue #24)
+
+Coordination owns the authorized action; Scheduling owns the session transition,
+reservation triggers, history and lifecycle outbox writes. Send the existing session
+cookie, same-origin header and `Content-Type: application/json` to:
+
+```http
+POST /api/v1/coordinator/sessions/{id}/cancel
+
+{"reason":"This session does not comply with faculty tutoring policy."}
+```
+
+Only an active coordinator assigned to the session's **stored tutor faculty** may
+act. Identity locks and rechecks the current assignment and account inside the
+transaction. The student's home faculty and the tutor's later program changes do
+not transfer session authority. A coordinator role is independent of student
+verification on a multi-role account. The route records coordinator capacity even
+when that coordinator is also a participant; the participant cancellation route
+continues to apply its existing participant rules.
+
+Only `REQUESTED` and `ACCEPTED` may become `CANCELLED`. This reuses Scheduling's
+existing cancellation timing: there is no additional policy cutoff. An overdue
+request remains cancellable until expiration wins; an accepted session remains
+cancellable after its end until completion or another terminal transition wins.
+`CANCELLED`, `DECLINED`, `EXPIRED`, `COMPLETED` and `NO_SHOW` return 409, including
+repeated policy cancellation. The operation never revives or deletes a session.
+
+`reason` is required, trimmed, and limited to 1–2000 UTF-8 bytes after trimming.
+Blank text, NUL and invalid UTF-8 are rejected. The 16 KiB JSON limit and strict
+unknown-field/trailing-value checks apply. No query parameters are accepted;
+clients cannot supply faculty, actor, timestamps, status or cancellation origin.
+
+Success is **200**, with `Cache-Control: no-store` and this response shape:
+
+```json
+{"data":{"id":"00000000-0000-0000-0000-000000001901","status":"CANCELLED","starts_at":"2026-12-07T14:00:00Z","ends_at":"2026-12-07T15:00:00Z","cancelled_at":"2026-12-06T16:00:00Z","cancelled_by_user_id":"00000000-0000-0000-0000-000000001806","cancellation_reason":"This session does not comply with faculty tutoring policy.","cancellation_origin":"COORDINATOR_POLICY","is_late_cancellation":false}}
+```
+
+The DTO excludes participant identities, descriptions, meeting secrets, grades and
+private feedback. Errors use `{"error":"..."}`: 400 malformed JSON/query, 401 missing
+or expired login, 403 inactive/non-coordinator, identical 404 for missing and
+wrong-faculty sessions, 409 lifecycle conflict, 413 oversized body, 415 incorrect
+content type, 422 invalid UUID/reason, and generic 500 on persistence failure.
+
+### Atomicity, audit and disciplinary isolation
+
+The lock order is current coordinator assignment/account (`FOR SHARE`), then the
+faculty-scoped session (`FOR UPDATE`). This path needs no participant eligibility
+or disciplinary reads, so it takes no participant account locks after the session.
+Competing participant decisions, completion and expiration serialize on the same
+session row and recheck its status before writing.
+
+One transaction updates cancellation metadata, releases **both** participant
+reservations through existing PostgreSQL triggers, appends status history, and
+queues a deduplicated `SESSION_CANCELLED` notification for each participant. A failed
+history or either outbox insert rolls everything back. Successful cancellation
+retains the original session and earlier history; released intervals can be booked
+again subject to ordinary availability and overlap constraints.
+
+Policy cancellation always records `is_late_cancellation: false`, even within
+24 hours or after the scheduled start. It creates no violation, semester flag,
+suspension or reinstatement. Prior disciplinary evidence remains unchanged.
+Migration 13 records `COORDINATOR_POLICY` in the new history `cancellation_origin`
+column; new participant cancellations record `PARTICIPANT`. Other events and legacy
+cancellations retain `null`, meaning unknown/not applicable. No actor capacity is
+inferred from mutable coordinator membership. History retains actor kind `USER`,
+actor ID, previous/new states, reason and the same server timestamp as the session.
+No general history API is introduced.
+
+Both participants receive the existing generic cancellation email with instructions
+to sign in; the reason is available through their existing authenticated session
+detail. This interprets UC04's “notified with the reason” through authenticated
+access, preserving the lifecycle email privacy convention. Policy evidence is not
+included in email bodies or logs. Outbox insertion means queued delivery, not inbox
+delivery; the existing worker retains at-least-once SMTP semantics.
+
+### Windows verification and migration order
+
+From the repository root in Windows PowerShell with Docker Desktop Linux containers:
+
+```powershell
+# Rebuild existing runtime/test images and run isolated PostgreSQL/Redis policy tests.
+.\backend\tests\integration\test_docker.ps1 -PolicyCancellationOnly
+# Full formatting, vet, race, build, API, local SMTP worker and migration checks.
+.\backend\tests\integration\test_docker.ps1
+# Plain package tests using the image built by either runner invocation.
+docker run --rm tutti-backend-tests go test ./...
+```
+
+The targeted mode is mutually exclusive with `-IssuesOnly`, `-MonitoringOnly` and
+`-NotificationsOnly`. Tests create disposable databases/containers, preserve local
+`.env` and Compose volumes, and need no running development worker or university
+credentials. `TestPolicyCancellation` also runs under the existing CI integration
+command. Coverage includes role/faculty and stale-authority cases, strict input,
+all terminal statuses, release/rebooking, history/outbox failures, multi-role
+capacity, and races against duplicate cancellation, acceptance, participant
+cancellation, completion and expiration.
+
+Apply **migration 13 before starting updated API or worker binaries**, because the
+shared session-event writer now inserts the new history column. With the intended
+development database URL already loaded into the current PowerShell session and
+the `migrate` CLI installed:
+
+```powershell
+migrate -path .\backend\migrations -database $env:DATABASE_URL up
+```
+
+The integration runner applies migrations only to its disposable databases; it
+does not migrate the developer's database. Migration 13 rollback refuses to erase
+any recorded cancellation origin. Do not delete history or bypass that guard to
+force rollback. See the [database contract](database/implementation.md#policy-cancellation-transaction-contract)
+for compatibility and retention details. Existing [worker commands](workers.md)
+remain applicable; no SMTP or Compose configuration changes are required.
+
+Frontend, suspension/reinstatement, automatic policy detection, a policy-rule
+engine, SSO and real university delivery are outside Issue #24.
 
 ## General issue reporting (FR10 / UC06)
 
