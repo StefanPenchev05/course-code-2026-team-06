@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	osexec "os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -88,12 +89,52 @@ func serveTestSMTP(conn net.Conn, messages chan<- string) {
 	}
 }
 
+// Exercise a notification created by the authenticated booking API, including
+// its committed event, rather than only inserting an artificial outbox record.
+func (f *bookingFixture) testBookingEmail(t *testing.T, session string) {
+	t.Helper()
+	var id string
+	if err := f.db.QueryRow(f.ctx, "SELECT id::text FROM notifications WHERE session_id=$1 AND type='NEW_REQUEST'", session).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := f.db.Begin(f.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Rollback(f.ctx)
+	if _, err := lock.Exec(f.ctx, "SELECT id FROM notifications WHERE id<>$1 FOR UPDATE", id); err != nil {
+		t.Fatal(err)
+	}
+	port, messages := startTestSMTP(t)
+	transport, err := smtp.New(smtp.Config{Host: "127.0.0.1", Port: port, From: "tutti@local.test", TLSMode: "plain", ConnectTimeout: time.Second, SendTimeout: 2 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delivery, err := email.New(emailpg.New(f.db), transport, email.Config{BatchSize: 1, MaxAttempts: 2, Lease: 30 * time.Second, SendTimeout: 2 * time.Second, RetryBase: time.Minute, RetryMax: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stats, err := delivery.RunBatch(f.ctx)
+	if err != nil || stats.Sent != 1 {
+		t.Fatal("booking email not delivered", stats, err)
+	}
+	select {
+	case message := <-messages:
+		if !strings.Contains(message, "To: book-tutor@uni.example") || !strings.Contains(message, "Message-ID: <"+id+"@local.test>") {
+			t.Fatal("wrong booking email")
+		}
+	case <-f.ctx.Done():
+		t.Fatal("booking email was not accepted locally")
+	}
+	f.count(t, 1, "SELECT count(*) FROM notifications WHERE id=$1 AND email_status='SENT' AND email_sent_at IS NOT NULL", id)
+}
+
 func TestNotificationDelivery(t *testing.T) {
 	dsn := os.Getenv("TUTTI_TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("run tests/integration/test_identity.sh for PostgreSQL")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	db, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -182,6 +223,21 @@ func TestNotificationDelivery(t *testing.T) {
 	if err != nil || !delayed {
 		t.Fatal(delayed, err)
 	}
+	// A fresh worker must honor the persisted retry time. Lock unrelated test
+	// records while inspecting the real queue; SKIP LOCKED must skip them.
+	lock, err := db.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lock.Exec(ctx, "SELECT id FROM notifications WHERE id<>$1 FOR UPDATE", temporary); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := emailpg.New(db).Claim(ctx, time.Minute, 2); err != nil || ok {
+		t.Fatalf("future retry became eligible: %t %v", ok, err)
+	}
+	if err := lock.Rollback(ctx); err != nil {
+		t.Fatal(err)
+	}
 	exec("UPDATE notifications SET next_attempt_at=now()-interval '1 day' WHERE id=$1", temporary)
 	stats, err = delivery.RunBatch(ctx)
 	if err != nil || stats.Failed != 1 {
@@ -216,8 +272,17 @@ func TestNotificationDelivery(t *testing.T) {
 	}
 
 	old := x.claim
+	if old.LeaseUntil.IsZero() || old.LeaseUntil.Before(time.Now()) {
+		t.Fatal("claim has no live lease")
+	}
 	// Simulate an abruptly stopped worker. Only its expired claim is available.
 	exec("UPDATE notifications SET lease_until=now()-interval '1 second' WHERE id=$1", old.ID)
+	if err := store.Sent(ctx, old); !errors.Is(err, email.ErrClaimLost) {
+		t.Fatalf("expired owner acknowledged: %v", err)
+	}
+	if err := store.Failed(ctx, old, email.TransportFailure, time.Second); !errors.Is(err, email.ErrClaimLost) {
+		t.Fatalf("expired owner scheduled retry: %v", err)
+	}
 	restarted := emailpg.New(db)
 	recovered, ok, err := restarted.Claim(ctx, time.Minute, 2)
 	if err != nil || !ok || recovered.ID != old.ID || recovered.Token == old.Token || recovered.Attempt != 2 {
@@ -233,18 +298,80 @@ func TestNotificationDelivery(t *testing.T) {
 		t.Fatal(err)
 	}
 	state(old.ID, "SENT", "", 2)
+	if err := store.Failed(ctx, recovered, email.TransportFailure, time.Second); !errors.Is(err, email.ErrClaimLost) {
+		t.Fatal("terminal state overwritten", err)
+	}
 
 	exec("UPDATE notifications SET attempt_count=2,lease_until=now()-interval '1 second' WHERE id=$1", y.claim.ID)
 	if n, err := restarted.FailExhausted(ctx, 2, 1); err != nil || n != 1 {
 		t.Fatal(n, err)
 	}
 	state(y.claim.ID, "FAILED", "lease_expired", 2)
+	t.Run("claim transaction rollback and live final lease", func(t *testing.T) {
+		id := seed(507, "rollback@local.test")
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tx.Rollback(ctx)
+		// This models termination before claim commit: neither ownership nor
+		// the consumed attempt may survive rollback.
+		if _, err := tx.Exec(ctx, `UPDATE notifications SET attempt_count=1,claim_token=gen_random_uuid(),lease_until=now()+interval '1 minute' WHERE id=$1`, id); err != nil {
+			t.Fatal(err)
+		}
+		if err := tx.Rollback(ctx); err != nil {
+			t.Fatal(err)
+		}
+		state(id, "PENDING", "", 0)
+		claim, ok, err := store.Claim(ctx, time.Minute, 1)
+		if err != nil || !ok || claim.ID != id || claim.Attempt != 1 {
+			t.Fatal("rolled-back attempt lost", err)
+		}
+		if n, err := store.FailExhausted(ctx, 1, 1); err != nil || n != 0 {
+			t.Fatal("active final lease exhausted", n, err)
+		}
+		if err := store.Sent(ctx, claim); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("SMTP acceptance before lost acknowledgment", func(t *testing.T) {
+		id := seed(508, "crash@local.test")
+		claim, ok, err := store.Claim(ctx, time.Minute, 3)
+		if err != nil || !ok || claim.ID != id {
+			t.Fatal(err)
+		}
+		if err := makeTransport("plain").Send(ctx, claim.Message); err != nil {
+			t.Fatal(err)
+		}
+		first := <-messages
+		// No Sent call: simulate a crash after SMTP success. The same outbox
+		// record recovers with a fresh token and the same Message-ID.
+		exec("UPDATE notifications SET lease_until=now()-interval '1 second' WHERE id=$1", id)
+		retry, ok, err := emailpg.New(db).Claim(ctx, time.Minute, 3)
+		if err != nil || !ok || retry.ID != id || retry.Token == claim.Token || retry.Attempt != 2 {
+			t.Fatal("lost acknowledgment not recovered", err)
+		}
+		if err := makeTransport("plain").Send(ctx, retry.Message); err != nil {
+			t.Fatal(err)
+		}
+		second := <-messages
+		for _, message := range []string{first, second} {
+			if !strings.Contains(message, "Message-ID: <"+id+"@local.test>") {
+				t.Fatal("unstable duplicate trace")
+			}
+		}
+		if err := store.Sent(ctx, retry); err != nil {
+			t.Fatal(err)
+		}
+		state(id, "SENT", "", 2)
+	})
 
 	t.Run("worker entry point", func(t *testing.T) {
 		id := seed(506, "worker@local.test")
 		for key, value := range map[string]string{
 			"DATABASE_URL": dsn, "SMTP_HOST": "127.0.0.1", "SMTP_PORT": strconv.Itoa(port),
 			"SMTP_FROM": "tutti@local.test", "SMTP_TLS_MODE": "plain", "SMTP_USERNAME": "", "SMTP_PASSWORD": "",
+			"SMTP_PASSWORD_FILE": "", "SMTP_CA_FILE": "",
 			"WORKER_EMAIL_BATCH_SIZE": "1", "WORKER_EMAIL_INTERVAL": "1h", "WORKER_EXPIRATION_INTERVAL": "1h",
 		} {
 			t.Setenv(key, value)
@@ -268,5 +395,48 @@ func TestNotificationDelivery(t *testing.T) {
 			t.Fatal(err)
 		}
 		state(id, "SENT", "", 1)
+	})
+	t.Run("worker runtime container", func(t *testing.T) {
+		workerImage, runner := os.Getenv("TUTTI_TEST_WORKER_IMAGE"), os.Getenv("TUTTI_TEST_CONTAINER")
+		if workerImage == "" || runner == "" {
+			t.Skip("run test_docker.ps1 for the runtime image smoke test")
+		}
+		id := seed(509, "container@local.test")
+		docker := func(args ...string) string {
+			t.Helper()
+			out, err := osexec.CommandContext(ctx, "docker", args...).CombinedOutput()
+			if err != nil {
+				t.Fatalf("Docker failed: %v: %s", err, out)
+			}
+			return strings.TrimSpace(string(out))
+		}
+		container := docker("run", "-d", "--network", "container:"+runner,
+			"-e", "DATABASE_URL="+dsn, "-e", "SMTP_HOST=127.0.0.1", "-e", "SMTP_PORT="+strconv.Itoa(port),
+			"-e", "SMTP_FROM=tutti@local.test", "-e", "SMTP_TLS_MODE=plain",
+			"-e", "WORKER_EMAIL_BATCH_SIZE=1", "-e", "WORKER_EMAIL_INTERVAL=1h", "-e", "WORKER_EXPIRATION_INTERVAL=1h",
+			workerImage, "/tutti-worker")
+		defer func() { _ = osexec.Command("docker", "rm", "-f", container).Run() }()
+		select {
+		case message := <-messages:
+			if !strings.Contains(message, "Message-ID: <"+id+"@local.test>") {
+				t.Fatal("wrong container notification")
+			}
+		case <-ctx.Done():
+			t.Fatal("container delivery timed out")
+		}
+		docker("stop", "--time", "10", container)
+		state(id, "SENT", "", 1)
+		logs := docker("logs", container)
+		if !strings.Contains(logs, `"notification_id":"`+id+`"`) || !strings.Contains(logs, "Tutti worker stopped") {
+			t.Fatal("missing outcome/shutdown logs")
+		}
+		for _, secret := range []string{"container@local.test", "Private fixture", "tutti_test", "claim_token"} {
+			if strings.Contains(logs, secret) {
+				t.Fatal("worker logs contain private data")
+			}
+		}
+		if code := docker("inspect", "--format", "{{.State.ExitCode}}", container); code != "0" {
+			t.Fatalf("shutdown exit code %s", code)
+		}
 	})
 }

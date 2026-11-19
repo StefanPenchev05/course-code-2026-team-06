@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"net/mail"
 	"net/smtp"
 	"net/textproto"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -27,27 +29,41 @@ type Config struct {
 	Host, From, Username, Password string
 	Port                           int
 	TLSMode                        string
+	CAFile                         string
 	ConnectTimeout, SendTimeout    time.Duration
 }
 
 type Transport struct {
 	config       Config
 	senderDomain string
+	roots        *x509.CertPool
 }
 
-var hostname = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$`)
+var hostLabel = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
 var messageID = regexp.MustCompile(`^[a-zA-Z0-9-]{1,100}$`)
 
+func validHostname(host string) bool {
+	if len(host) == 0 || len(host) > 253 {
+		return false
+	}
+	for _, label := range strings.Split(host, ".") {
+		if !hostLabel.MatchString(label) {
+			return false
+		}
+	}
+	return true
+}
+
 func New(c Config) (*Transport, error) {
-	if (net.ParseIP(c.Host) == nil && !hostname.MatchString(c.Host)) || c.Port < 1 || c.Port > 65535 {
+	if (net.ParseIP(c.Host) == nil && !validHostname(c.Host)) || c.Port < 1 || c.Port > 65535 {
 		return nil, errors.New("configure SMTP_HOST and a valid SMTP_PORT")
 	}
 	domain := mailboxDomain(c.From)
 	if domain == "" {
 		return nil, errors.New("SMTP_FROM must be a plain email address")
 	}
-	if c.ConnectTimeout <= 0 || c.SendTimeout <= 0 || c.ConnectTimeout > c.SendTimeout {
-		return nil, errors.New("SMTP_CONNECT_TIMEOUT must be positive and no longer than SMTP_SEND_TIMEOUT")
+	if c.ConnectTimeout <= 0 || c.SendTimeout <= 0 || c.ConnectTimeout > c.SendTimeout || c.SendTimeout > time.Minute {
+		return nil, errors.New("SMTP timeouts must be positive, connect <= send, and send <= 60s")
 	}
 	if (c.Username == "") != (c.Password == "") {
 		return nil, errors.New("configure both SMTP_USERNAME and SMTP_PASSWORD, or leave both empty")
@@ -55,13 +71,27 @@ func New(c Config) (*Transport, error) {
 	switch c.TLSMode {
 	case "starttls", "implicit":
 	case "plain":
-		if (c.Host != "localhost" && !net.ParseIP(c.Host).IsLoopback()) || c.Username != "" {
+		if (c.Host != "localhost" && !net.ParseIP(c.Host).IsLoopback()) || c.Username != "" || c.CAFile != "" {
 			return nil, errors.New("plaintext SMTP is restricted to unauthenticated loopback testing")
 		}
 	default:
 		return nil, errors.New("SMTP_TLS_MODE must be starttls, implicit, or plain")
 	}
-	return &Transport{config: c, senderDomain: domain}, nil
+	var roots *x509.CertPool
+	if c.CAFile != "" {
+		pem, err := os.ReadFile(c.CAFile)
+		if err != nil {
+			return nil, errors.New("could not read SMTP_CA_FILE")
+		}
+		roots, err = x509.SystemCertPool()
+		if err != nil {
+			return nil, errors.New("could not load system certificate authorities")
+		}
+		if !roots.AppendCertsFromPEM(pem) {
+			return nil, errors.New("SMTP_CA_FILE must contain PEM certificates")
+		}
+	}
+	return &Transport{config: c, senderDomain: domain, roots: roots}, nil
 }
 
 func mailboxDomain(value string) string {
@@ -78,7 +108,7 @@ func mailboxDomain(value string) string {
 		return ""
 	}
 	i := strings.LastIndexByte(value, '@')
-	if i < 1 || !hostname.MatchString(value[i+1:]) {
+	if i < 1 || !validHostname(value[i+1:]) {
 		return ""
 	}
 	return value[i+1:]
@@ -108,7 +138,7 @@ func (t *Transport) Send(ctx context.Context, message application.Message) error
 	}
 
 	var conn net.Conn = raw
-	tlsConfig := &tls.Config{ServerName: t.config.Host, MinVersion: tls.VersionTLS12}
+	tlsConfig := &tls.Config{ServerName: t.config.Host, MinVersion: tls.VersionTLS12, RootCAs: t.roots}
 	if t.config.TLSMode == "implicit" {
 		secured := tls.Client(raw, tlsConfig)
 		if err := secured.HandshakeContext(ctx); err != nil {

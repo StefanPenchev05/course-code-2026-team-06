@@ -35,6 +35,7 @@ services:
       postgres:
         condition: service_healthy
     stop_grace_period: 75s
+    restart: "on-failure:5"
     environment:
       DATABASE_URL: ${WORKER_DATABASE_URL:-postgres://tutti:tutti_dev@postgres:5432/tutti?sslmode=disable}
       WORKER_EXPIRATION_INTERVAL: ${WORKER_EXPIRATION_INTERVAL:-10s}
@@ -50,7 +51,9 @@ services:
       SMTP_FROM: ${SMTP_FROM:-}
       SMTP_USERNAME: ${SMTP_USERNAME:-}
       SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_PASSWORD_FILE: ${SMTP_PASSWORD_FILE:-}
       SMTP_TLS_MODE: ${SMTP_TLS_MODE:-starttls}
+      SMTP_CA_FILE: ${SMTP_CA_FILE:-}
       SMTP_CONNECT_TIMEOUT: ${SMTP_CONNECT_TIMEOUT:-5s}
       SMTP_SEND_TIMEOUT: ${SMTP_SEND_TIMEOUT:-20s}
 

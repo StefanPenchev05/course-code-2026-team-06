@@ -219,6 +219,7 @@ func TestBookingLifecycle(t *testing.T) {
 	f.count(t, 2, "SELECT count(*) FROM session_participant_blocks WHERE session_id=$1", id)
 	f.count(t, 1, "SELECT count(*) FROM session_status_history WHERE session_id=$1 AND from_status IS NULL AND changed_by_user_id=$2", id, fixture(bookingStudent))
 	f.count(t, 1, "SELECT count(*) FROM notifications WHERE session_id=$1 AND type='NEW_REQUEST' AND recipient_user_id=$2", id, fixture(bookingTutor))
+	f.testBookingEmail(t, id)
 	f.count(t, 1, "SELECT count(*) FROM tutoring_sessions WHERE id=$1 AND faculty_id=$2 AND expires_at=$3", id, fixture(401), f.start.Add(time.Hour))
 	if got := f.session(t, 200, "GET", "/sessions/"+id, nil, bookingStudent); got["viewer_role"] != "STUDENT" {
 		t.Fatal(got)

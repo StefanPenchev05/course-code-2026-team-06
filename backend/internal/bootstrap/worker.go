@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,8 +65,30 @@ func workerSettings() (workerConfig, error) {
 	}
 	c.smtp.Host, c.smtp.From = os.Getenv("SMTP_HOST"), os.Getenv("SMTP_FROM")
 	c.smtp.Username, c.smtp.Password = os.Getenv("SMTP_USERNAME"), os.Getenv("SMTP_PASSWORD")
+	if path := os.Getenv("SMTP_PASSWORD_FILE"); path != "" {
+		if c.smtp.Password != "" {
+			return c, errors.New("set only one of SMTP_PASSWORD and SMTP_PASSWORD_FILE")
+		}
+		file, err := os.Open(path)
+		if err != nil {
+			return c, errors.New("could not read SMTP_PASSWORD_FILE")
+		}
+		defer file.Close()
+		secret, err := io.ReadAll(io.LimitReader(file, 4097))
+		if err != nil || len(secret) > 4096 {
+			return c, errors.New("SMTP_PASSWORD_FILE must be readable and at most 4096 bytes")
+		}
+		c.smtp.Password = strings.TrimSuffix(strings.TrimSuffix(string(secret), "\n"), "\r")
+		if c.smtp.Password == "" {
+			return c, errors.New("SMTP_PASSWORD_FILE must not be empty")
+		}
+	}
 	c.smtp.TLSMode = env("SMTP_TLS_MODE", "starttls")
+	c.smtp.CAFile = os.Getenv("SMTP_CA_FILE")
 	c.smtp.SendTimeout = c.email.SendTimeout
+	if c.expirationInterval > time.Hour || c.emailInterval > time.Hour {
+		return c, errors.New("worker polling intervals must be between 1s and 1h")
+	}
 	if err := c.email.Validate(); err != nil {
 		return c, errors.New("check SMTP_SEND_TIMEOUT, WORKER_EMAIL_LEASE and WORKER_EMAIL_RETRY settings")
 	}
@@ -96,6 +120,16 @@ func RunWorker(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	delivery = delivery.WithObserver(func(event email.Event) {
+		level := slog.LevelInfo
+		if event.State != "sent" {
+			level = slog.LevelWarn
+		}
+		logger.Log(context.Background(), level, "notification delivery",
+			"notification_id", event.ID, "attempt", event.Attempt, "state", event.State,
+			"failure_category", string(event.Failure), "retry_after", event.RetryAfter.String(),
+			"lease_until", event.LeaseUntil.UTC(), "duration_ms", event.Duration.Milliseconds())
+	})
 	expiration := worker.Expiration{Service: newBookingService(pool), BatchSize: c.expirationBatch, Now: time.Now}
 
 	logger.Info("Tutti worker started", "expiration_interval", c.expirationInterval.String(), "email_interval", c.emailInterval.String())
