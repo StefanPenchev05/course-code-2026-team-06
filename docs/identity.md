@@ -1,5 +1,8 @@
 # Identity and authentication
 
+> **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
+
+
 The Go backend's Identity module handles student registration, coordinator verification, and email/password login. It uses the existing PostgreSQL migration schema and Redis sessions. Student and tutor permissions can coexist on the same account. Tutors get tutoring access only while their student verification is approved and their tutor profile is active.
 
 ## Local setup

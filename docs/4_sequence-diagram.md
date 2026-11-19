@@ -1,5 +1,8 @@
 # 4. Behavioural Aspects (Yanislav)
 
+> **Historical model:** The original diagrams and explanatory model below are retained as Deliverable 1 evidence, not current normative rules. In particular, multi-subject applications, uniform 48-hour expiry and current-semester strike reset descriptions are superseded by the [current requirements](1.3-1.4_user-story_mapping--requirement_analysis.md) and [decisions D02–D08](requirements-decisions.md). Use the [traceability matrix](requirements-traceability.md) for current implementation status.
+
+
 ## 4.1 Sequence Diagram
 
 The following sequence diagrams illustrate the interaction between the actors and the Tutti peer-to-peer tutoring platform during the tutoring session booking process.
