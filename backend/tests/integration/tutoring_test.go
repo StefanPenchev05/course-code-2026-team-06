@@ -235,11 +235,19 @@ func TestTutoringAPI(t *testing.T) {
 	}
 	exec("UPDATE students SET program_id=$2 WHERE user_id=$1", tutor, newProgram)
 	search(subjectA, 0, "")
+	if _, err := eligibility.GetApprovedOffering(ctx, tutor, subjectA); !errors.Is(err, tutordomain.ErrNotFound) {
+		t.Fatal("current program check before reconciliation", err)
+	}
 	if err := service.RevalidateTutorEligibility(ctx, tutor); err != nil {
 		t.Fatal(err)
 	}
 	count(1, "SELECT count(*) FROM tutor_offerings WHERE id=$1 AND NOT is_active AND deactivated_at IS NOT NULL AND deactivation_reason IS NOT NULL", before.ID)
 	search(subjectB, 1, "")
+	own := a.call(t, 200, "GET", "/tutors/me", nil, cookies[tutor])
+	assertPrivate(t, own.Body.String())
+	if !strings.Contains(own.Body.String(), `"active":false`) {
+		t.Fatal("owner cannot view inactive offering", own.Body.String())
+	}
 	exec("UPDATE students SET program_id=$2 WHERE user_id=$1", tutor, programA)
 	if err := service.RevalidateTutorEligibility(ctx, tutor); err != nil {
 		t.Fatal(err)
@@ -267,6 +275,7 @@ func TestTutoringAPI(t *testing.T) {
 	}
 	count(1, "SELECT count(*) FROM tutor_qualifications WHERE application_id=$1", first)
 	count(1, "SELECT count(*) FROM tutor_offerings o JOIN tutor_qualifications q ON q.id=o.qualification_id WHERE q.application_id=$1 AND o.id=$2", reactivation, before.ID)
+	t.Run("transactional offering revalidation", func(t *testing.T) { testOfferingRevalidation(t, ctx, db, service, tutor, pending) })
 	exec("UPDATE users SET is_suspended=true,suspended_at=now(),suspended_by_coordinator_id=$2,suspension_reason='fixture' WHERE id=$1", tutor, coordA)
 	search(subjectA, 0, "")
 	a.call(t, 404, "GET", "/tutors/"+tutor, nil, cookies[learner])

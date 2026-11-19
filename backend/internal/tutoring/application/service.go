@@ -287,32 +287,3 @@ func (s *Service) GetApprovedOffering(ctx context.Context, tutor, subject string
 	}
 	return s.repo.ApprovedOffering(ctx, tutor, subject)
 }
-
-// RevalidateTutorEligibility withdraws ineligible offerings without modifying existing sessions.
-func (s *Service) RevalidateTutorEligibility(ctx context.Context, studentID string) error {
-	if !uuid.MatchString(studentID) {
-		return domain.ErrInvalid
-	}
-	return s.repo.InTransaction(ctx, func(tx Transaction) error {
-		student, err := tx.Student(ctx, studentID)
-		if err != nil {
-			return err
-		}
-		offerings, err := tx.ActiveOfferings(ctx, studentID)
-		if err != nil {
-			return err
-		}
-		for _, offering := range offerings {
-			ok, err := tx.Catalog().SubjectBelongsToProgram(ctx, student.ProgramID, offering.SubjectID)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				if err := tx.Deactivate(ctx, offering.ID); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	})
-}
