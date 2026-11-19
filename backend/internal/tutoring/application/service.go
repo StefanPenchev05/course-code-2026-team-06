@@ -9,6 +9,7 @@ import (
 
 	catalog "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/application"
 	catalogdomain "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/domain"
+	feedback "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/application"
 	identity "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/domain"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/domain"
 )
@@ -55,10 +56,11 @@ type OfferingEligibility interface {
 type Service struct {
 	repo    Repository
 	catalog catalog.AcademicCatalog
+	ratings feedback.TutorRatings
 }
 
-func New(repo Repository, catalog catalog.AcademicCatalog) *Service {
-	return &Service{repo: repo, catalog: catalog}
+func New(repo Repository, catalog catalog.AcademicCatalog, ratings feedback.TutorRatings) *Service {
+	return &Service{repo: repo, catalog: catalog, ratings: ratings}
 }
 
 var uuid = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -234,7 +236,17 @@ func (s *Service) Profile(ctx context.Context, actor identity.Principal, id stri
 	if !uuid.MatchString(id) {
 		return domain.Profile{}, domain.ErrInvalid
 	}
-	return s.repo.Profile(ctx, id, own)
+	profile, err := s.repo.Profile(ctx, id, own)
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	summaries, err := s.ratings.RatingSummaries(ctx, []string{profile.ID})
+	if err != nil {
+		return domain.Profile{}, err
+	}
+	rating := summaries[profile.ID]
+	profile.AverageRating, profile.RatingCount = rating.AverageRating, rating.RatingCount
+	return profile, nil
 }
 
 func (s *Service) Search(ctx context.Context, actor identity.Principal, f domain.Search) ([]domain.Match, error) {
@@ -250,7 +262,23 @@ func (s *Service) Search(ctx context.Context, actor identity.Principal, f domain
 		return nil, err
 	}
 	f.Limit++
-	return s.repo.Search(ctx, actor.ID, f)
+	matches, err := s.repo.Search(ctx, actor.ID, f)
+	if err != nil || len(matches) == 0 {
+		return matches, err
+	}
+	ids := make([]string, len(matches))
+	for i, m := range matches {
+		ids[i] = m.ID
+	}
+	summaries, err := s.ratings.RatingSummaries(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	for i := range matches {
+		rating := summaries[matches[i].ID]
+		matches[i].AverageRating, matches[i].RatingCount = rating.AverageRating, rating.RatingCount
+	}
+	return matches, nil
 }
 
 func (s *Service) GetApprovedOffering(ctx context.Context, tutor, subject string) (domain.Offering, error) {

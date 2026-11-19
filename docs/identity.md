@@ -1,5 +1,8 @@
 # Identity and authentication
 
+> **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
+
+
 The Go backend's Identity module handles student registration, coordinator verification, and email/password login. It uses the existing PostgreSQL migration schema and Redis sessions. Student and tutor permissions can coexist on the same account. Tutors get tutoring access only while their student verification is approved and their tutor profile is active.
 
 ## Local setup
@@ -60,7 +63,7 @@ Redis stores the account ID under a key derived from the opaque cookie and autom
 
 A trusted university provisioning process can call `application.Service.IssueActivation` with the pre-provisioned coordinator ID and an `ActivationMailer`. It stores a SHA-256 digest of a random token and hands the raw token to the mailer for that coordinator's stored address. The public activation route consumes the token and sets the password in one transaction. Once a password is set, other issued activation tokens cannot activate the account. An email delivery failure can be retried by issuing a new token. The PostgreSQL record from a failed delivery expires normally.
 
-The integration tests supply a capture mailer. Production still needs a trusted provisioning entry point and a mail adapter, HTTPS with the configured origin, and deployment-level rate limits for public authentication requests. The module does not send production activation emails on its own.
+The integration tests supply a capture mailer. The [shared SMTP transport](workers.md) can be injected as the activation mailer by trusted provisioning. Activation sends directly and keeps raw tokens out of the durable notification outbox. Production still requires a trusted provisioning entry point, SMTP configuration, HTTPS, and deployment-level limits for public authentication requests.
 
 ## Tests
 

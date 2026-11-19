@@ -15,17 +15,25 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
 	catalog "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/application"
 	catalogpostgres "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/infrastructure/postgres"
 	cataloghttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/interfaces/http"
+	coordination "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/application"
+	coordpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/infrastructure/postgres"
+	coordhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/interfaces/http"
+	feedback "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/application"
+	feedbackpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/infrastructure/postgres"
+	feedbackhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/interfaces/http"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/application"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/postgres"
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/security"
 	identityhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/interfaces/http"
+	scheduling "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/application"
+	schedulingpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/infrastructure/postgres"
+	schedulinghttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/interfaces/http"
 	tutoring "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/application"
 	tutoringpostgres "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/infrastructure/postgres"
 	tutoringhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/interfaces/http"
@@ -109,20 +117,13 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		Domains:    strings.Split(os.Getenv("UNIVERSITY_EMAIL_DOMAINS"), ","),
 		SessionTTL: sessionTTL, ActivationTTL: activationTTL,
 	}
-	databaseURL := os.Getenv("DATABASE_URL")
-	if databaseURL == "" {
-		return errors.New("DATABASE_URL is required")
-	}
 	startup, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	pool, err := pgxpool.New(startup, databaseURL)
+	pool, err := openDatabase(startup)
 	if err != nil {
-		return errors.New("invalid PostgreSQL connection configuration")
+		return err
 	}
 	defer pool.Close()
-	if err := pool.Ping(startup); err != nil {
-		return errors.New("could not connect to PostgreSQL")
-	}
 	options, err := redis.ParseURL(env("REDIS_URL", "redis://127.0.0.1:6379/0"))
 	if err != nil {
 		return errors.New("invalid Redis connection configuration")
@@ -147,7 +148,25 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		LockStudent:            postgres.LockStudent,
 		LockCoordinatorFaculty: postgres.LockCoordinatorFaculty,
 	})
-	tutoringhttp.New(tutoring.New(tutoringRepo, catalogService), logger).RegisterRoutes(mux, identity)
+	bookingService := newBookingService(pool)
+	feedbackService := feedback.New(feedbackpg.New(pool, feedbackpg.Dependencies{
+		Student: postgres.LockStudent, Session: schedulingpg.LockStudentSession,
+	}), bookingService)
+	feedbackhttp.New(feedbackService, logger).RegisterRoutes(mux, identity)
+	tutoringService := tutoring.New(tutoringRepo, catalogService, feedbackService)
+	tutoringhttp.New(tutoringService, logger).RegisterRoutes(mux, identity)
+	schedulingService := scheduling.New(schedulingpg.New(pool, postgres.LockStudent), tutoringService, time.Now)
+	schedulinghttp.New(schedulingService, logger).RegisterRoutes(mux, identity)
+	schedulinghttp.NewBooking(bookingService, logger).RegisterRoutes(mux, identity)
+	attendanceRepo := coordpg.NewAttendance(pool, coordpg.AttendanceDependencies{
+		LockStudent:            postgres.LockStudent,
+		LockCoordinatorFaculty: postgres.LockCoordinatorFaculty,
+		HomeFaculty: func(ctx context.Context, tx pgx.Tx, program string) (string, error) {
+			return catalog.New(catalogpostgres.InTransaction(tx)).GetProgramFaculty(ctx, program)
+		},
+		Sessions: schedulingpg.AttendanceSessions,
+	})
+	coordhttp.New(coordination.NewAttendance(attendanceRepo, time.Now), logger).RegisterRoutes(mux, identity)
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", "127.0.0.1:8080"),
 		Handler:           http.TimeoutHandler(mux, 10*time.Second, `{"error":"request timed out"}`),

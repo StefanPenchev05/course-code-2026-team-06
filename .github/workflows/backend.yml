@@ -66,6 +66,10 @@ jobs:
       - name: Test schema, concurrency and migration rollback
         run: python3 backend/tests/integration/test_schema.py
 
+      - name: Verify worker runtime image with local SMTP
+        shell: pwsh
+        run: ./backend/tests/integration/test_docker.ps1 -NotificationsOnly
+
   package:
     name: Package Linux backend
     needs: checks
@@ -94,8 +98,9 @@ jobs:
           bundle="$RUNNER_TEMP/tutti-backend"
           mkdir -p "$bundle"
           go build -trimpath -o "$bundle/tutti-api" ./cmd/api
+          go build -trimpath -o "$bundle/tutti-worker" ./cmd/worker
           tar -czf "$RUNNER_TEMP/tutti-backend-linux-amd64.tar.gz" \
-            -C "$bundle" tutti-api -C "$GITHUB_WORKSPACE/backend" migrations
+            -C "$bundle" tutti-api tutti-worker -C "$GITHUB_WORKSPACE/backend" migrations
 
       - name: Upload delivery archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7

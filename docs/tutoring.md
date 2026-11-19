@@ -48,13 +48,13 @@ Missing sessions return 401. Users without the required role or verification rec
 - **Submission.** Lock the applicant and read their current program, faculty, verification, and suspension state. A transaction-bound Catalog adapter checks the program and subject link. Insert the application, its single qualification, and the initial history together. PostgreSQL's pending-application index resolves conflicts, and an application for an active subject offering returns 409.
 - **Decision.** Resolve the coordinator's current faculty, then lock the applicant and the pending application and qualification. Approval rechecks the applicant's verified and active state, current faculty, grade, and program membership. An application that has moved outside the reviewing faculty cannot be approved there. Rejection requires a reason. The decision, profile and offering changes, history, and one pending email record commit together. Concurrent review attempts can produce only one decision.
 - **Repeat approval.** A second subject reuses the tutor profile. If a previously approved offering is inactive and the coordinator explicitly approves a new application, the module reactivates the same offering ID using the newly reviewed qualification. The previous application, grade, and history remain available to authorized reviewers. A disabled tutor profile needs an authorized lifecycle decision before taking on more approved subjects.
-- **Discovery.** The service checks the requester's program through Catalog. A set-based PostgreSQL query checks the live membership and verification of both sides in the same read snapshot. It includes active profiles, active offerings with approved evidence, and eligible tutors from any faculty. Search covers profile and offering information. Availability, ratings, and teaching statistics belong to later modules.
+- **Discovery.** The service checks the requester's program through Catalog. A set-based PostgreSQL query checks the live membership and verification of both sides in the same read snapshot. It includes active profiles, active offerings with approved evidence, and eligible tutors from any faculty. Search covers profile and offering information. See [Feedback](feedback.md) for aggregate ratings included in discovery and profiles and for the tutor activity endpoint.
 
 The write adapters lock the user and student rows, the Catalog program and matching membership rows, and the relevant application records in the same PostgreSQL transaction. Go never needs to make a separate pool call for academic checks that govern a Tutoring write. Program changes and administrative edits should use transactions and coordinate with these locks. Discovery and the offering read port are point-in-time reads.
 
 `RevalidateTutorEligibility(ctx, studentID)` is an internal service operation. It reads the current program under lock, deactivates offerings outside that program with a timestamp and reason, and keeps prior evidence and accepted sessions. A change back to an eligible program does not automatically reactivate an offering. There is currently no approved-student program-change endpoint. A future program-change workflow must invoke revalidation. Discovery checks current membership even before the stored offering is updated.
 
-Decision notifications use the applicant's user ID and a unique decision key. A future mail worker can resolve the university email from the recipient identity. The module queues those records without sending mail.
+Decision notifications use the applicant's user ID and a unique decision key. The [mail worker](workers.md) resolves the university email from the recipient identity and submits the queued record to SMTP.
 
 ## Scheduling interface
 
@@ -73,3 +73,5 @@ python3 backend/tests/integration/test_schema.py
 ```
 
 The shared integration runner executes Tutoring, Identity, and Catalog tests. The Tutoring cases exercise faculty boundaries, cross-faculty discovery, grade privacy, concurrent decisions, profile reuse, revalidation and reactivation, and transaction rollback after a failed notification insert.
+
+Tutor search and profile responses include aggregate ratings from the [Feedback module](feedback.md). The same guide covers private feedback history and teaching activity.

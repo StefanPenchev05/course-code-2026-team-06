@@ -1,6 +1,9 @@
 # Tutti PostgreSQL setup
 
-The eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
+> **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](../requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
+
+
+The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
 
 | Migration | Domain and key constraints |
 | --- | --- |
@@ -12,6 +15,8 @@ The eight paired [migrations](../../backend/migrations/) create all 31 tables in
 | 6 | Feedback, issue and attendance reports, violations, and semester flags. One feedback row per session, at most one violation per user and session, at most one flag per user and semester, and a confirmed attendance report required for a no-show violation. |
 | 7 | Email notification records, suspension history, and status history. History records store the actor, time, and both states for a transition. |
 | 8 | Sponsors and aggregate report snapshots. Reporting-period, count, and feedback-average checks. |
+| 9 | Email outbox delivery leases, attempts, retry schedule, failure category, and a pending-delivery index. |
+| 10 | Outbox notification types for attendance reports and decisions. |
 
 ## Local commands
 
@@ -46,13 +51,13 @@ The integration runner requires Docker, Python 3, `migrate`, and PostgreSQL clie
 python3 backend/tests/integration/test_schema.py
 ```
 
-The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It also verifies all eight rollbacks and replays the migrations from empty.
+The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It also verifies all ten rollbacks and replays the migrations from empty.
 
 ## Booking transaction contract
 
 The session write creates exactly two participant blocks for `REQUESTED` and `ACCEPTED` through a database trigger. Any conflict aborts the session write and both block writes. A transition out of these states deletes both blocks in the same transaction. A separate guard prevents direct changes that would remove or alter an active reservation. The GiST exclusion alone guarantees that existing blocks never overlap for the same user. The triggers guarantee that an active session has both matching blocks. Both concrete availability and reservations use half-open intervals `[start, end)`.
 
-The Go service should create the session, initial history, and required email record in the same transaction. It should **not** insert or remove participant blocks itself. For a response or expiry, lock the session row or use a conditional state update, check the current status and deadline with trusted server time, and write the status, history, and notifications together. The database checks the approved expiry formula against stored timestamps. The service supplies the trusted request timestamp and rejects stale responses. Translate PostgreSQL exclusion failures (`23P01`) into a scheduling conflict.
+The [Go booking service](../scheduling.md#stage-2-session-booking) commits the session, audit history, and queued email records together. PostgreSQL manages participant blocks through triggers. Go locks each session before responding and checks its deadline using trusted server time. The database independently checks the expiry formula against the stored request and start timestamps. The API translates exclusion failures (`23P01`) to booking conflicts.
 
 Each new session needs a source slot and must fit its mode and interval and the chosen semester. PostgreSQL prevents deletion of that slot while a session is active. Deleting a slot later clears the reference from historical sessions and preserves their scheduled details. To change a concrete window's time or mode, replace the occurrence. When deleting only one generated occurrence, write its exception in the same transaction so generation does not recreate it.
 

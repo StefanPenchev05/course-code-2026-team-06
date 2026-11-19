@@ -96,15 +96,17 @@ def check_concurrency(psql):
 
 
 def main():
+    network = os.environ.get("TUTTI_TEST_DOCKER_NETWORK")
+    network_args = ["--network", network, "--network-alias", "schema-postgres"] if network else ["-p", "127.0.0.1::5432"]
     container = output(
         "docker", "create", "--tmpfs", "/var/lib/postgresql/data:rw,size=256m",
-        "-p", "127.0.0.1::5432", "-e", "POSTGRES_PASSWORD=tutti_test",
+        *network_args, "-e", "POSTGRES_PASSWORD=tutti_test",
         "-e", "POSTGRES_DB=tutti_test", "postgres:17",
     )
     try:
         run("docker", "start", container, stdout=subprocess.DEVNULL)
-        port = output("docker", "port", container, "5432/tcp").rsplit(":", 1)[1]
-        url = f"postgres://postgres:tutti_test@127.0.0.1:{port}/tutti_test?sslmode=disable"
+        address = "schema-postgres:5432" if network else output("docker", "port", container, "5432/tcp")
+        url = f"postgres://postgres:tutti_test@{address}/tutti_test?sslmode=disable"
         psql = ["psql", "-X", "-v", "ON_ERROR_STOP=1", url]
         wait_until(
             lambda: subprocess.run(

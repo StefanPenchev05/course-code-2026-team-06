@@ -16,6 +16,8 @@ import (
 
 	catalog "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/application"
 	catalogpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/infrastructure/postgres"
+	feedback "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/application"
+	feedbackpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/infrastructure/postgres"
 	identity "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/application"
 	identitypg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/postgres"
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
@@ -58,7 +60,7 @@ func TestTutoringAPI(t *testing.T) {
 		Catalog:     func(tx pgx.Tx) catalog.AcademicCatalog { return catalog.New(catalogpg.InTransaction(tx)) },
 		LockStudent: identitypg.LockStudent, LockCoordinatorFaculty: identitypg.LockCoordinatorFaculty,
 	})
-	service := tutoring.New(repo, catalog.New(catalogpg.New(db)))
+	service := tutoring.New(repo, catalog.New(catalogpg.New(db)), feedback.New(feedbackpg.New(db, feedbackpg.Dependencies{}), nil))
 	mux := http.NewServeMux()
 	auth := identityhttp.New(idService, origin, true, slog.Default())
 	auth.RegisterRoutes(mux)
