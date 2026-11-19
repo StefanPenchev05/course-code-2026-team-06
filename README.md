@@ -70,6 +70,6 @@ See the [Scheduling guide](docs/scheduling.md) for recurring availability, excep
 
 See the [worker guide](docs/workers.md) for expiration polling, SMTP delivery, retries, and Compose setup.
 
-## Coordination API
+## Requirements baseline
 
-See the [Coordination guide](docs/coordination.md) for faculty-scoped issue creation (FR10 / UC06), append-only issue history, attendance decisions, and Windows PowerShell test commands.
+See the [current requirements](docs/1.3-1.4_user-story_mapping--requirement_analysis.md), [traceability matrix](docs/requirements-traceability.md) and [decision log](docs/requirements-decisions.md) for approved scope, implementation evidence and outstanding decisions. Uni.lu-only SSO is mandatory; current local-password Identity APIs are legacy pending migration.
