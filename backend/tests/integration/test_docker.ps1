@@ -1,9 +1,9 @@
 # Run from any directory with Docker Desktop using Linux containers.
 # All databases are disposable; the developer's .env and Compose services are not used.
 [CmdletBinding()]
-param([switch]$NotificationsOnly, [switch]$IssuesOnly, [switch]$MonitoringOnly, [switch]$PolicyCancellationOnly)
+param([switch]$NotificationsOnly, [switch]$IssuesOnly, [switch]$MonitoringOnly, [switch]$PolicyCancellationOnly, [switch]$SuspensionOnly)
 $ErrorActionPreference = 'Stop'
-if (@($NotificationsOnly, $IssuesOnly, $MonitoringOnly, $PolicyCancellationOnly).Where({ $_ }).Count -gt 1) { throw 'Choose only one targeted test mode.' }
+if (@($NotificationsOnly, $IssuesOnly, $MonitoringOnly, $PolicyCancellationOnly, $SuspensionOnly).Where({ $_ }).Count -gt 1) { throw 'Choose only one targeted test mode.' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
 $runId = [Guid]::NewGuid().ToString('N')
 $network = "tutti-test-$runId"
@@ -24,6 +24,7 @@ try {
     if ($IssuesOnly) { $testCommand = @('bash', 'tests/integration/test_identity.sh', '-race', '-run', '^TestIssueReporting$') }
     if ($MonitoringOnly) { $testCommand = @('bash', 'tests/integration/test_identity.sh', '-race', '-run', '^TestCoordinatorMonitoring$') }
     if ($PolicyCancellationOnly) { $testCommand = @('bash', 'tests/integration/test_identity.sh', '-race', '-run', '^TestPolicyCancellation$') }
+    if ($SuspensionOnly) { $testCommand = @('bash', 'tests/integration/test_identity.sh', '-race', '-run', '^TestSuspensionAdministration$') }
     Invoke-Docker run --rm --name $runner --network $network `
         --mount 'type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock' `
         -e "TUTTI_TEST_DOCKER_NETWORK=$network" -e "TUTTI_TEST_CONTAINER=$runner" `

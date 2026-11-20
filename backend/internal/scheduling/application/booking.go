@@ -36,6 +36,7 @@ type BookingTransaction interface {
 }
 
 type Event struct {
+	SuspensionHistoryID      string
 	CancellationOrigin       domain.CancellationOrigin
 	SessionID, Actor, Reason string
 	From, To                 domain.Status

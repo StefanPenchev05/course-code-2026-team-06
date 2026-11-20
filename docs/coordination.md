@@ -1,4 +1,150 @@
-# Coordination: monitoring, policy cancellation, issue reports and attendance decisions
+# Coordination: account administration, monitoring and session oversight
+
+## Suspension and reinstatement (FR19 / UC14, Issue #25)
+
+The coordinator of a student's **current home faculty** can suspend or reinstate
+that account. Home faculty comes from the locked student program through Catalog;
+it does not come from a past session, a tutor's offering, or client input. This
+workflow covers students and tutors, including accounts with an additional
+coordinator role. A coordinator-only account has no student home faculty and is
+outside UC14's target population. Missing and out-of-faculty targets both return
+the same 404.
+
+| Method and path (prefix `/api/v1`) | Behavior |
+| --- | --- |
+| `POST /coordinator/users/{id}/suspend` | Suspend an active, non-closed account and cancel all its future active sessions. |
+| `POST /coordinator/users/{id}/reinstate` | Reverse a suspension without restoring earlier session or eligibility changes. |
+
+Both routes require the existing authenticated cookie, current active coordinator
+authority, same-origin header and `Content-Type: application/json`. The only input
+is `{"reason":"The documented conditions for this decision have been reviewed."}`.
+Reasons are trimmed and limited to **1–2000 UTF-8 bytes**. Blank/invalid UTF-8/NUL,
+incorrect types, unknown fields, malformed/trailing JSON and bodies over 16 KiB
+are rejected. Query parameters are not accepted. The backend supplies actor,
+faculty, state, decision ID and time. Both application and database validate reasons.
+
+Success returns **200**, with `Cache-Control: no-store`:
+
+```json
+{"data":{"user_id":"00000000-0000-0000-0000-000000005202","decision_id":"00000000-0000-0000-0000-000000005901","is_suspended":true,"changed_at":"2026-11-20T12:00:00Z","cancelled_sessions":4}}
+```
+
+The response contains no other participants, session IDs from other faculties,
+grades, disciplinary evidence or private reasons. Errors use `{"error":"..."}`:
+400 malformed JSON/query, 401 missing/expired login, 403 ineligible actor, 404
+inaccessible target, 409 duplicate/closed-account transition or exhausted lock
+contention, 413 oversized body, 415 wrong content type, 422 invalid UUID/reason,
+and generic 500 for persistence failure. An already suspended target cannot be
+suspended again; an unsuspended target cannot be reinstated. Closed accounts
+cannot undergo either transition.
+
+### Account access and reinstatement
+
+Identity persists the existing `users.is_suspended` flag until an explicit reversal.
+Every protected request reloads PostgreSQL account state; Redis holds only the
+account ID under an opaque session key. A cookie issued before suspension therefore
+loses access immediately on subsequent requests, across student, tutor and
+coordinator roles. Login is also denied. Tutor discovery already excludes suspended
+accounts; retained coordinator monitoring remains available for authorized oversight.
+
+Redis keys are not revoked by this transaction. After reinstatement, an unexpired,
+unrevoked cookie works with current permissions; expired/revoked sessions require
+login. This avoids a second durable state change in Redis outside the PostgreSQL
+transaction. Previously started reads can finish from their prior snapshot;
+transactional writes recheck account/authority under their existing locks.
+
+Reinstatement does not approve verification/applications, reactivate withdrawn or
+academically ineligible offerings, reopen sessions, recreate reservations, erase
+flags or change earlier evidence. It restores only access justified by independent
+eligibility checks. Last suspension metadata is retained on the account; each
+decision, including the new reinstatement reason, is appended to history.
+Multi-role targets lose all roles, so reinstatement always requires a currently
+active home-faculty coordinator. Flags never trigger suspension automatically.
+
+### Future sessions, privacy and atomicity
+
+“Future” follows Scheduling's upcoming-session boundary: **`starts_at >= decision
+time`**, using one server UTC timestamp captured after authority/account locks.
+Every `REQUESTED` or `ACCEPTED` session involving the target as student or tutor is
+cancelled, including cross-faculty sessions and still-requested rows past their
+expiration deadline. Already-started and terminal sessions remain unchanged.
+
+Coordination composes Identity and Scheduling transaction-bound ports. One
+transaction updates the account, appends `user_suspension_history`, queues the
+account notice, cancels the entire eligible session set, releases both participant
+reservations through existing triggers, and appends session history/outbox records.
+Session pages contain at most 100 rows, ordered by UUID; paging continues until
+none remain. There is no total cancellation cap and no background partial cleanup.
+Timeout, cancellation, or any required write failure rolls the whole operation back.
+
+Suspension cancellations have origin `SUSPENSION` and a foreign key
+`session_status_history.suspension_history_id` to the account decision. They use the
+generic shared reason `Session cancelled following an account suspension.` The
+private administrative reason remains in account history; it is not copied to the
+other participant's session, email, public profile or logs. The late flag is false:
+these cancellations create no participant violation or semester flag.
+
+One `USER_SUSPENDED` or `USER_REINSTATED` notice is queued for the target per
+decision, including when there are no future sessions. Each cancelled session
+queues the existing `SESSION_CANCELLED` notice for both participants. Account
+deduplication uses the decision ID; session deduplication retains its existing key.
+Notices are generic; a suspended user is directed to their home-faculty coordinator.
+No SMTP connection is needed for the HTTP operation. Worker delivery remains
+at least once, and queueing does not promise inbox delivery.
+
+### Locking and verification
+
+Identity locks actor and target accounts in UUID order using `FOR NO KEY UPDATE`.
+The first lock may wait. The second uses `NOWAIT`, because existing tutor review
+and attendance operations acquire participant/coordinator locks in different
+orders. On contention, the transaction rolls back its locks and retries up to ten
+attempts with bounded backoff (450 ms total delay); exhausted contention returns
+409 with no partial effects. Self-targeting uses one account lock and still requires
+the same home-faculty rule.
+
+It then locks/rechecks the coordinator assignment and target student row, and
+locks the current program for faculty resolution. Scheduling locks sessions in UUID
+order without `SKIP LOCKED` and never acquires another participant account lock.
+Bookings and participant decisions use the same target account lock: a prior
+committed booking is included; a booking after suspension rechecks eligibility and
+fails. Policy cancellation, expiration and completion serialize on session/account
+locks and cannot overwrite an already committed terminal state. No coordinator
+gets read access to another faculty's session details through this operation.
+
+From the repository root in Windows PowerShell with Docker Desktop Linux containers:
+
+```powershell
+# Build existing runtime/test images and run isolated PostgreSQL/Redis suspension tests.
+.\backend\tests\integration\test_docker.ps1 -SuspensionOnly
+# Full formatting, vet, race, build, regression, local SMTP worker and migration checks.
+.\backend\tests\integration\test_docker.ps1
+# Plain package tests after the runner has built the test image.
+docker run --rm tutti-backend-tests go test ./...
+```
+
+Use one targeted switch at a time. Existing targeted modes remain available. The
+runner preserves `.env`, Compose host ports and development volumes, needs no
+running development worker or live university credentials, and cleans up only its
+disposable test containers/network. `TestSuspensionAdministration` is included by
+the existing CI integration command. It covers stale cookies, cross-faculty and
+authority races, both roles, exact time boundaries, 105-session pagination,
+audit/outbox failure, cancelled requests, independent reinstatement eligibility,
+preserved evidence and competing lifecycle actions.
+
+Apply **migration 14 before updated API and worker binaries**; their shared session
+event writer now references `suspension_history_id`. With the intended database URL
+already loaded and `migrate` installed:
+
+```powershell
+migrate -path .\backend\migrations -database $env:DATABASE_URL up
+```
+
+Tests do not migrate the developer database. See the [database contract](database/implementation.md#suspension-administration-transaction-contract)
+for legacy compatibility and rollback guards. Existing historical coordinator
+foreign keys can prevent reassignment/removal after decisions; this issue preserves
+those references. Large transactions remain subject to the API deadline; no
+production-scale latency guarantee is implied. Frontend, SSO, live university SMTP,
+automatic sanctions and account deletion remain outside Issue #25.
 
 ## Tutor monitoring and faculty statistics (FR16 / UC12, Issue #23)
 

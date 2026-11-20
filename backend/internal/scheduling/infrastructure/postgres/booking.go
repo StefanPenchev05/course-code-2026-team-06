@@ -211,9 +211,9 @@ func (t *bookingTx) RecordEvent(ctx context.Context, event application.Event) er
 		actor = "SYSTEM"
 	}
 	_, err := t.tx.Exec(ctx, `
-		INSERT INTO session_status_history (session_id,from_status,to_status,changed_at,actor_kind,changed_by_user_id,reason,cancellation_origin)
-		VALUES ($1,NULLIF($2::text,'')::session_status,$3,$4,$5,NULLIF($6::text,'')::uuid,NULLIF($7,''),NULLIF($8,''))`,
-		event.SessionID, event.From, event.To, event.At, actor, event.Actor, event.Reason, event.CancellationOrigin)
+		INSERT INTO session_status_history (session_id,from_status,to_status,changed_at,actor_kind,changed_by_user_id,reason,cancellation_origin,suspension_history_id)
+		VALUES ($1,NULLIF($2::text,'')::session_status,$3,$4,$5,NULLIF($6::text,'')::uuid,NULLIF($7,''),NULLIF($8,''),NULLIF($9,'')::uuid)`,
+		event.SessionID, event.From, event.To, event.At, actor, event.Actor, event.Reason, event.CancellationOrigin, event.SuspensionHistoryID)
 	if err != nil {
 		return err
 	}

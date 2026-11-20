@@ -188,6 +188,12 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		LockCoordinatorFaculty: postgres.LockCoordinatorFaculty, Sessions: schedulingpg.PolicySessions,
 	})
 	coordhttp.NewPolicyCancellation(coordination.NewPolicyCancellation(policyRepo, time.Now), logger).RegisterRoutes(mux, identity)
+	suspensionRepo := coordpg.NewSuspension(pool, coordpg.SuspensionDependencies{
+		Accounts: postgres.SuspensionAccounts,
+		Catalog:  func(tx pgx.Tx) catalog.AcademicCatalog { return catalog.New(catalogpostgres.InTransaction(tx)) },
+		Sessions: schedulingpg.SuspensionSessions,
+	})
+	coordhttp.NewSuspension(coordination.NewSuspension(suspensionRepo, time.Now), logger).RegisterRoutes(mux, identity)
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", "127.0.0.1:8080"),
 		Handler:           http.TimeoutHandler(mux, 10*time.Second, `{"error":"request timed out"}`),

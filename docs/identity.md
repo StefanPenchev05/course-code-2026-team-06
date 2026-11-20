@@ -65,6 +65,32 @@ A trusted university provisioning process can call `application.Service.IssueAct
 
 The integration tests supply a capture mailer. The [shared SMTP transport](workers.md) can be injected as the activation mailer by trusted provisioning. Activation sends directly and keeps raw tokens out of the durable notification outbox. Production still requires a trusted provisioning entry point, SMTP configuration, HTTPS, and deployment-level limits for public authentication requests.
 
+## Suspension administration (FR19 / UC14, Issue #25)
+
+The [Coordination workflow](coordination.md#suspension-and-reinstatement-fr19--uc14-issue-25)
+provides `POST /api/v1/coordinator/users/{id}/suspend` and `/reinstate`, each with a
+required `reason`. Identity's published `SuspensionAccounts` capability owns the
+locked account state, student membership and existing `user_suspension_history`;
+Catalog resolves the current home faculty in the same transaction. Coordinator-only
+targets without student membership have no academic home faculty and return 404.
+
+Suspension is account-wide and has no automatic expiry. Existing login cookies and
+fresh logins fail while the account is suspended because authentication reloads
+PostgreSQL on every protected request. No Redis role cache or revocation index is
+added. Reinstatement allows an unexpired/unrevoked cookie to resume only the roles
+it currently qualifies for. Verification, tutor approvals, withdrawn offerings,
+closure and previous cancellations remain independent; nothing is automatically
+restored. Closed accounts and repeated transitions return conflict.
+
+Account decisions retain actor, home faculty, both suspension states, trimmed reason
+and server timestamp. Reinstatement retains last suspension metadata and appends
+its own reason rather than overwriting previous evidence. Migration 14 protects the
+existing history from UPDATE/DELETE/TRUNCATE and validates new reasons without
+rewriting legacy rows. The account, all future session cancellations, histories and
+generic outbox notices share one PostgreSQL transaction. Public profiles and logs
+do not expose administrative reasons. Apply migration 14 before updated binaries;
+see [database migration ordering](database/implementation.md#suspension-administration-transaction-contract).
+
 ## Tests
 
 ```sh

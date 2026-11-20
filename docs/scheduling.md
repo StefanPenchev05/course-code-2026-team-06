@@ -158,6 +158,33 @@ The shared `USER` actor kind remains unchanged. Apply migration 13 before update
 API/worker binaries. Generic emails notify both participants; the reason is visible
 through their existing authenticated session detail.
 
+### Suspension-driven cancellation (FR19 / UC14, Issue #25)
+
+Home-faculty account administration uses Scheduling's transaction-bound
+`SuspensionSessions` capability. With the target Identity account locked, it scans
+sessions where the target is either participant, status is `REQUESTED`/`ACCEPTED`,
+and `starts_at >= decision time`. The boundary includes a session starting exactly
+at that UTC instant; already-started and terminal sessions are preserved. Scope
+includes sessions stored under another tutor faculty without granting the acting
+coordinator access to their details.
+
+Keyset pages of 100 rows lock sessions in UUID order and continue to exhaustion in
+the same transaction. No `SKIP LOCKED`, total cap or separate cleanup job is used.
+Existing cancellation state/persistence primitives release both reservations,
+append history and queue notices to both participants. Origin `SUSPENSION` and
+`suspension_history_id` distinguish and link the initiating account decision.
+Session reasons are generic; private disciplinary reasons stay in Identity history.
+No late-cancellation violation is generated. Reinstatement never reopens sessions.
+
+New bookings and participant actions recheck eligibility under the shared Identity
+account locks. An earlier committed booking is visible to suspension; one that
+follows suspension cannot pass eligibility. Session locks serialize policy
+cancellation and expiration. All earlier pages roll back if any later cancellation,
+history/outbox insert or request context fails. Migration 14 precedes API/worker
+startup because the shared event writer now includes the decision-link column.
+See [Coordination](coordination.md#suspension-and-reinstatement-fr19--uc14-issue-25)
+for the full API, lock/retry contract, reinstatement rules and Windows commands.
+
 ## Stage 3B: completion and attendance
 
 The assigned tutor can send `POST /api/v1/tutors/me/sessions/{id}/complete` with their session cookie and the configured same-origin header. The server records completion at or after the scheduled end of an `ACCEPTED` session. Success returns 200 with the updated session, including `completed_at` and `completed_by_tutor_id`. The status change releases both reservations and commits with its history entry. No client timestamp is used.

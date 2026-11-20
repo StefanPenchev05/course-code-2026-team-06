@@ -135,9 +135,65 @@ def check_policy_cancellation_migration(psql, migrate):
     if output(*psql, "-Atc", legacy_query) != before:
         raise RuntimeError("guarded rollback changed legacy cancellation history")
     run(*migrate, "down", "1")
-    run(*migrate, "up")
+    run(*migrate, "up", "1")  # Reapply only 13 before testing the next upgrade.
     if output(*psql, "-Atc", legacy_query) != before:
         raise RuntimeError("migration 13 rollback/reapply changed legacy cancellation history")
+
+
+def check_suspension_migration(psql, migrate):
+    run(*psql, "-q", "-c", """
+        WITH account AS (
+            INSERT INTO users(name,email,is_suspended,suspended_at,suspended_by_coordinator_id,suspension_reason)
+            SELECT 'Legacy suspended user','legacy-suspension@example.test',true,now(),c.user_id,repeat('s',2001)
+            FROM coordinators c WHERE c.employee_number='LEGACY-REVIEWER' RETURNING id
+        ) INSERT INTO user_suspension_history(user_id,faculty_id,changed_by_coordinator_id,was_suspended,is_suspended,reason)
+          SELECT account.id,c.faculty_id,c.user_id,false,true,repeat('s',2001)
+          FROM account,coordinators c WHERE c.employee_number='LEGACY-REVIEWER';
+    """)
+    legacy = """
+        SELECT jsonb_build_array(to_jsonb(u),to_jsonb(h))::text FROM users u
+        JOIN user_suspension_history h ON h.user_id=u.id WHERE u.email='legacy-suspension@example.test'
+    """
+    before = output(*psql, "-Atc", legacy)
+    run(*migrate, "up", "1")
+    if output(*psql, "-Atc", legacy) != before:
+        raise RuntimeError("migration 14 changed legacy suspension evidence")
+    insert = """
+        INSERT INTO user_suspension_history(user_id,faculty_id,changed_by_coordinator_id,was_suspended,is_suspended,reason)
+        SELECT user_id,faculty_id,changed_by_coordinator_id,true,false,'Reinstatement fixture'
+        FROM user_suspension_history ORDER BY id LIMIT 1;
+    """
+    for reason in ["' '", "U&'\\2003'", "repeat('x',2001)"]:
+        statement = insert.replace("'Reinstatement fixture'", reason)
+        run(*psql, "-q", "-c", f"SELECT tutti_test.expect_state('23514',$test${statement}$test$)", stdout=subprocess.DEVNULL)
+    for statement in ["UPDATE user_suspension_history SET reason='tampered'",
+                      "DELETE FROM user_suspension_history", "TRUNCATE user_suspension_history, session_status_history",
+                      "UPDATE users SET suspension_reason=U&'\\2003' WHERE email='legacy-suspension@example.test'"]:
+        run(*psql, "-q", "-c", f"SELECT tutti_test.expect_state('23514',$test${statement}$test$)", stdout=subprocess.DEVNULL)
+    session_insert = """
+        INSERT INTO session_status_history(session_id,from_status,to_status,actor_kind,changed_by_user_id,reason,cancellation_origin,suspension_history_id)
+        SELECT s.id,'REQUESTED','CANCELLED','USER',s.cancelled_by_user_id,'Account suspension','SUSPENSION',h.id
+        FROM tutoring_sessions s CROSS JOIN user_suspension_history h WHERE s.status='CANCELLED' ORDER BY s.id,h.id LIMIT 1;
+    """
+    for statement in [session_insert.replace("'SUSPENSION',h.id", "'SUSPENSION',NULL"),
+                      session_insert.replace("'SUSPENSION'", "'PARTICIPANT'")]:
+        run(*psql, "-q", "-c", f"SELECT tutti_test.expect_state('23514',$test${statement}$test$)", stdout=subprocess.DEVNULL)
+    down = (MIGRATIONS / "000014_suspension_administration.down.sql").read_text()
+    notice = """
+        INSERT INTO notifications(recipient_user_id,type,subject,body,deduplication_key)
+        SELECT id,'USER_SUSPENDED','Account notice','Generic notice','schema-suspension-guard'
+        FROM users WHERE email='legacy-suspension@example.test';
+    """
+    for marker in [notice, session_insert]:
+        rejected = subprocess.run([*psql, "-q", "-c", "BEGIN;" + marker + down], text=True, capture_output=True, timeout=30)
+        if rejected.returncode == 0 or "cannot roll back suspension administration" not in rejected.stderr:
+            raise RuntimeError("migration 14 failed to preserve decision links/notifications")
+    run(*migrate, "down", "1")
+    if output(*psql, "-Atc", legacy) != before:
+        raise RuntimeError("migration 14 rollback changed legacy evidence")
+    run(*migrate, "up", "1")
+    if output(*psql, "-Atc", legacy) != before:
+        raise RuntimeError("migration 14 reapplication changed legacy evidence")
 
 
 def main():
@@ -201,17 +257,18 @@ def main():
         run(*migrate, "down", "1")
         if output(*psql, "-Atc", legacy_query) != "1|1":
             raise RuntimeError("resolution rollback changed evidence/history")
-        run(*migrate, "up")
+        run(*migrate, "up", "2")  # Reapply 12 and apply 13; test 14 separately.
         check_tables(psql, EXPECTED_TABLES)
         run(*psql, "-q", "-f", str(TESTS / "schema.sql"), stdout=subprocess.DEVNULL)
         check_policy_cancellation_migration(psql, migrate)
+        check_suspension_migration(psql, migrate)
         check_concurrency(psql)
         run(*psql, "-q", "-c", "DROP SCHEMA tutti_test CASCADE", stderr=subprocess.DEVNULL)
         run(*migrate, "down", "-all")
         check_tables(psql, set())
         run(*migrate, "up")
         check_tables(psql, EXPECTED_TABLES)
-        print("PASS: all 32 tables, legacy issue upgrade/resolution, migrations 12/13 rollback, cancellation-origin constraints and retention guard, integrity checks, concurrent exclusion, complete rollback and reapply.")
+        print("PASS: all 32 tables, legacy issue/suspension evidence, migrations 12/13/14 rollback, cancellation-origin and suspension constraints/retention guards, concurrent exclusion, complete rollback and reapply.")
     except Exception:
         run("docker", "logs", "--tail", "20", container)
         raise
