@@ -96,6 +96,17 @@ of 100 in UUID order. Existing status triggers release both reservations. Every
 session update/history/two-recipient outbox write shares the account transaction;
 timeouts and failures roll back all pages. No disciplinary writes occur.
 
+Issue #49 independently rechecks this existing contract without a new migration.
+Its [source/test evidence matrix](../coordination.md#independent-atomicity-verification-issue-49)
+covers 105-session failure positions, rollback after 100 completed updates,
+database and request cancellation, exact PostgreSQL time boundaries and both
+forced booking/expiry serialization orders. The tests strengthen assertions for
+both recipient notices and reservation release on every linked cancellation.
+The account lock prevents new authorized bookings from appearing behind the UUID
+cursor. Expiry uses `SKIP LOCKED`; suspension waits and rechecks locked rows and
+continues to exhaustion, so a successful suspension leaves no eligible active
+session. An expiry batch may defer locked requests to its next poll.
+
 [Migration 14](../../backend/migrations/000014_suspension_administration.up.sql)
 adds `USER_SUSPENDED`/`USER_REINSTATED` to the existing notification enum. The worker
 already delivers stored subjects/bodies without a per-type handler. It also permits

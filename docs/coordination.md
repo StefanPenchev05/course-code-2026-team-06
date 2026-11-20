@@ -257,6 +257,61 @@ authority races, both roles, exact time boundaries, 105-session pagination,
 audit/outbox failure, cancelled requests, independent reinstatement eligibility,
 preserved evidence and competing lifecycle actions.
 
+### Independent atomicity verification (Issue #49)
+
+Issue #49 / FR19 / UC14 / NFR12 was reviewed on
+`feature/feedback_coordinator_operations`, starting from clean commit `eafab22`.
+The existing #25 implementation, strengthened by #26, already implements the
+required transaction. No production code, endpoint, interface, migration, Docker
+configuration or cancellation policy changed for #49. The additions strengthen
+test evidence and traceability rather than introduce another suspension workflow.
+
+The review covered the root AGENTS guide (no nested guides), repository structure,
+the full documentation review carried through the milestone (including historical
+PDFs/diagrams), current FR19/UC14/NFR12 and related reservation/notification/faculty
+rules, module adapters, bootstrap, migrations through 15 and existing tests.
+Current requirements and migration behavior take precedence over superseded
+historical designs; university SSO and U04 retention approvals remain separate.
+
+| Guarantee | Existing implementation | Verification evidence |
+|---|---|---|
+| Current home faculty and required reason | [Coordination use case](../backend/internal/coordination/application/suspension.go), [Identity account locks/writer](../backend/internal/identity/infrastructure/postgres/suspension.go), [HTTP guards](../backend/internal/coordination/interfaces/http/suspension.go) | Strict inputs, both cross-faculty directions, safe 404s, current-authority/program races and multi-role cases in the existing suspension suite |
+| Every future active session in either role | [Scheduling paging](../backend/internal/scheduling/application/suspension.go), [locked SQL selection](../backend/internal/scheduling/infrastructure/postgres/suspension.go) | 105-session scans; PostgreSQL one-microsecond-before/exact/after boundary; overdue REQUESTED rows; retained started and terminal sessions |
+| Both reservations released | [Session status trigger](../backend/migrations/000005_sessions.up.sql) | No residual block linked to any cancellation decision; existing participant rebooking test; no manual reservation deletion |
+| Account/session history and notices atomic | [Transaction owner](../backend/internal/coordination/infrastructure/postgres/suspension.go), [session event writer](../backend/internal/scheduling/infrastructure/postgres/booking.go), [decision FK](../backend/migrations/000014_suspension_administration.up.sql) | Actual account-history/account-notice failures; first/middle/final UPDATE failures; history/outbox failures on session 105; request cancellation and `pg_cancel_backend` at UPDATE 101 |
+| No participant strike | [Administrative transition](../backend/internal/scheduling/domain/suspension.go), [shared cancellation writer](../backend/internal/scheduling/application/policy_cancellation.go) | Zero-, one- and already-flagged-user evidence; less-than-24-hour and cross-semester cancellations leave violations/flags unchanged |
+| Booking/expiry serialization | Identity account locks, Scheduling row locks and conditional updates | Both winning orders forced by database barriers; one terminal history, no duplicate notices, no active future booking after suspension; existing acceptance/participant/policy/completion/duplicate-administration races retained |
+
+New scenarios live in [suspension_atomicity_test.go](../backend/tests/integration/suspension_atomicity_test.go)
+and [suspension_ordered_races_test.go](../backend/tests/integration/suspension_ordered_races_test.go).
+The existing [suspension_test.go](../backend/tests/integration/suspension_test.go)
+registers them and now checks each participant's notice and deduplication key,
+all reservation releases and absence of eligible active sessions per decision.
+The new fixture uses a separate 2050 calendar, leaving earlier fixture assumptions
+intact. Temporary trigger/advisory barriers and backend cancellation operate only
+inside disposable test services and are cleaned up; arbitrary sleeps do not select
+the winner. Failure checks compare complete before/after rows in account, session,
+reservation, history, outbox and disciplinary tables. Terminal-record checks also
+compare their original session/history/reservation/notification payloads.
+
+The existing `-SuspensionOnly` and full PowerShell commands above include these
+tests. CI's unfiltered integration command discovers them without a workflow
+change. No additional runner mode or real SMTP credential is required. Atomicity
+covers one committed database transaction; it does not promise email inbox delivery,
+unbounded-duration success, or protection against privileged manual database writes.
+Memory is paged but locks and transaction work grow with the session count; a
+deadline/cancellation aborts the entire operation rather than committing a prefix.
+
+Verification on 2026-11-20: `test_docker.ps1 -SuspensionOnly` passed, followed by
+the final full `test_docker.ps1` and `docker run --rm tutti-backend-tests go test ./...`.
+The full runner passed formatting, vet, race-enabled package and PostgreSQL/Redis
+integration tests, builds, all existing coordinator/flag/audit regressions, local
+SMTP/runtime worker verification and all 33-table schema/legacy/rollback/reapply
+checks. No test failure remained. Plain package runs skip service cases; the full
+runner executes them. Real university SMTP was deliberately skipped. Hosted CI,
+developer review, deployment, Project #11 updates and merging to main are not
+claimed. The persistent developer database and local environment were untouched.
+
 Apply **migration 14 before updated API and worker binaries**; their shared session
 event writer now references `suspension_history_id`. With the intended database URL
 already loaded and `migrate` installed:

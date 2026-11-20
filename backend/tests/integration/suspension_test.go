@@ -54,7 +54,13 @@ func TestSuspensionAdministration(t *testing.T) {
 		}
 		f.decide(t, suspCoordinator, suspTutor, false, 409)
 		// Session authority does not authorize sanctions over this student.
-		f.decide(t, suspOtherCoordinator, suspStudent, true, 200)
+		discipline := f.snapshot(t, "user_violations", "user_semester_flags")
+		f.count(t, 0, "SELECT count(*) FROM user_violations WHERE user_id=$1", fixture(suspStudent))
+		decision := f.decide(t, suspOtherCoordinator, suspStudent, true, 200)
+		f.assertDecision(t, decision["decision_id"].(string), suspStudent, suspOtherCoordinator, true, 1)
+		if discipline != f.snapshot(t, "user_violations", "user_semester_flags") {
+			t.Fatal("suspension introduced a first strike")
+		}
 		f.count(t, 1, "SELECT count(*) FROM tutoring_sessions WHERE id=$1 AND status='CANCELLED'", id)
 		f.decide(t, suspCoordinator, suspStudent, false, 404)
 		f.decide(t, suspOtherCoordinator, suspStudent, false, 200)
@@ -219,6 +225,7 @@ func TestSuspensionAdministration(t *testing.T) {
 	f.testSuspensionRaces(t)
 	f.testSuspensionAuthority(t)
 	f.testAuditHistory(t)
+	f.testSuspensionAtomicity(t)
 	f.testFlaggedUsers(t)
 	for _, private := range []string{"private suspension evidence", "private failure evidence", "19.37"} {
 		if strings.Contains(f.logs.String(), private) {
@@ -245,4 +252,16 @@ func (f *suspensionFixture) assertDecision(t *testing.T, id string, target, acto
 		AND s.cancellation_reason='Session cancelled following an account suspension.'`, id)
 	f.count(t, 2*cancelled, `SELECT count(*) FROM notifications n JOIN session_status_history h ON h.session_id=n.session_id
 		WHERE h.suspension_history_id=$1 AND n.type='SESSION_CANCELLED' AND n.email_status='PENDING' AND strpos(n.body,'private suspension evidence')=0`, id)
+	for _, role := range []string{"student_id", "tutor_id"} {
+		f.count(t, 0, `SELECT count(*) FROM session_status_history h JOIN tutoring_sessions s ON s.id=h.session_id
+ WHERE h.suspension_history_id=$1 AND NOT EXISTS (SELECT 1 FROM notifications n
+ WHERE n.session_id=s.id AND n.recipient_user_id=s.`+role+` AND n.type='SESSION_CANCELLED'
+ AND n.deduplication_key='session:'||s.id::text||':SESSION_CANCELLED')`, id)
+	}
+	f.count(t, 0, `SELECT count(*) FROM session_participant_blocks b JOIN session_status_history h ON h.session_id=b.session_id
+ WHERE h.suspension_history_id=$1`, id)
+	if suspend {
+		f.count(t, 0, `SELECT count(*) FROM tutoring_sessions WHERE (student_id=$1 OR tutor_id=$1)
+ AND starts_at >= $2 AND status IN ('REQUESTED','ACCEPTED')`, fixture(target), time.UnixMicro(f.clock.Load()))
+	}
 }

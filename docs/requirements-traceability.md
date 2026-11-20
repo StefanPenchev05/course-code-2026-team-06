@@ -1,5 +1,27 @@
 # Requirements traceability baseline
 
+**Subsequent Issue #49 verification (local branch `feature/feedback_coordinator_operations`, 2026-11-20):**
+Independent source review found FR19/UC14 atomic suspension cancellation already
+implemented by #25, with NFR12 preservation strengthened by #26. Production code
+and migrations are unchanged. The [acceptance/source/test matrix](coordination.md#independent-atomicity-verification-issue-49)
+connects current home-faculty authorization, required reasons, both-role future
+selection, trigger-managed reservation release, account/session histories,
+transactional participant notices and exclusion from disciplinary strikes.
+Additional PostgreSQL tests cover first/middle/final session-write failure,
+history/outbox failure on session 105, request/database abort at UPDATE 101,
+precise time boundaries, terminal evidence, cross-semester no-strike behavior
+and both forced booking/expiry winning orders. Existing authorization, audit,
+policy and lifecycle concurrency regressions are retained. The suspension
+assertions now verify each participant's notice and all released reservations.
+Local verification passed `test_docker.ps1 -SuspensionOnly`, the final full
+`test_docker.ps1` (format/vet/race/build, real PostgreSQL/Redis regressions, local
+SMTP/runtime worker, schema upgrade/rollback/reapply/concurrency), and the explicit
+`docker run --rm tutti-backend-tests go test ./...`. Real university SMTP was
+deliberately skipped; no local failure remained. Existing production behavior is
+verified without a new suspension implementation or migration 16.
+This is backend evidence for #49, not a frontend, university SSO, deployment,
+hosted CI, Project update or issue-closure claim.
+
 **Subsequent Issue #48 evidence (local branch `feature/feedback_coordinator_operations`, 2026-11-20):**
 The [home-faculty flag review API](coordination.md#home-faculty-flagged-user-review-fr18--uc12--uc16--nfr2-issue-48)
 implements the missing backend inbox for FR18, UC12, UC16 and NFR2. Coordination
