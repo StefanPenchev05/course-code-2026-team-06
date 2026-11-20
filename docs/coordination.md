@@ -1,5 +1,118 @@
 # Coordination: account administration, monitoring and session oversight
 
+## Home-faculty flagged-user review (FR18 / UC12 / UC16 / NFR2, Issue #48)
+
+`GET /api/v1/coordinator/flagged-users` is a read-only faculty inbox. It requires
+the existing opaque session cookie and an active coordinator assignment. Identity
+reloads current permissions at the middleware and again inside the response's
+database snapshot. Missing, expired or revoked sessions return 401; student/tutor
+accounts without coordinator authority, suspended/closed coordinators and removed
+assignments return 403. An additional student/tutor role does not remove valid
+coordinator authority or grant it independently.
+
+```json
+{"data":[{"flag_id":"00000000-0000-0000-0000-000000006901","user_id":"00000000-0000-0000-0000-000000006101","semester_id":"00000000-0000-0000-0000-000000005131","strike_count":3,"flagged_at":"2030-01-15T12:00:00Z","is_suspended":false}],"pagination":{"limit":25,"offset":0,"has_more":false}}
+```
+
+The response has exactly these six summary fields and `Cache-Control: no-store`.
+It excludes names, email, student numbers, grades, transcripts, attendance evidence,
+incident details and private suspension reasons. There is no faculty/user search
+parameter, aggregate total or separate detail route. Existing
+`GET /api/v1/coordinator/users/{id}/audit-history?category=FLAG` and `category=VIOLATION`
+remain the authorized detail contracts; they retain their own historical event
+scope and return the same empty page for missing and foreign history.
+
+### Ownership, counts and current account state
+
+- The **stored `user_semester_flags.faculty_id`** controls review visibility. A
+  program change does not transfer the old flag to a new faculty. Coordinator
+  permissions use their current assignment, not a stale cookie/principal faculty.
+- Attendance decisions still belong to the **session's stored tutor faculty**.
+  The affected participant's home faculty at the threshold receives the flag.
+  Suspension/reinstatement still require the user's **current home faculty**.
+  Historical flag access grants no additional sanction or attendance authority.
+- `strike_count` is the **current total of authoritative `user_violations` rows
+  for that user and session semester**, including incidents recorded after the
+  flag. It is not the fixed pair of cause links captured by migration 15. A later
+  program move can change an incident's home faculty without changing this total
+  or transferring the old flag; individual incident details keep their own scope.
+  Legacy qualifying violations count even when their actor/faculty metadata is
+  unknown. No historical attribution is invented.
+- Only confirmed no-shows and late participant cancellations enter that table.
+  Pending/rejected allegations, early cancellations, coordinator policy actions
+  and suspension cancellations do not count. Different semesters are independent;
+  additional incidents never create a second flag for the same user/semester.
+- `is_suspended` comes from current persisted Identity account state, not flag
+  existence or historical decisions. Reinstatement leaves the flag available.
+  Reading the inbox does not create flags, change sanctions or send notifications.
+
+### Pagination, consistency and errors
+
+Only `limit` (default 25, range 1–100) and `offset` (default 0, range 0–100000)
+are supported. Unknown or repeated keys, malformed encodings and noninteger values
+return 400; out-of-range integers return 422. Unsupported filters, including
+`faculty_id`, `user_id` and `semester_id`, are rejected. No match returns 200 with
+`data: []` and `has_more: false`; inaccessible IDs cannot be probed through this
+collection route. Unsupported mutations return 405. Persistence failures return a
+generic 500 without private SQL or account information.
+
+Faculty scope is applied before `ORDER BY flagged_at DESC, id DESC`, `LIMIT` and
+`OFFSET`. A bounded extra row determines `has_more`, without global counts. A
+read-only repeatable-read transaction combines live coordinator authority, the
+flag page, indexed semester counts and a single transaction-bound Identity batch
+query for current suspension states. There are no per-user application queries.
+Concurrent commits cannot mix counts and suspension state within one response.
+Previously started reads may finish from their authorized snapshot; separate pages
+can reflect different snapshots, so concurrent insertions can shift offset pages.
+
+Existing indexes on `(faculty_id, flagged_at)` and `(user_id, semester_id)` support
+the lookup. No migration, counter table, new dependency or writer change is needed.
+Migration 15 remains the prerequisite for the existing milestone's protected audit
+writers; this work does not inspect or migrate the persistent developer database.
+
+### Windows verification and integration
+
+From the repository root in Windows PowerShell with Docker Desktop Linux containers:
+
+```powershell
+# Rebuild runtime/test images; includes the new flag-review subtests plus #25/#26.
+.\backend\tests\integration\test_docker.ps1 -SuspensionOnly
+# Also includes flag review and related audit/booking/issue/policy regressions.
+.\backend\tests\integration\test_docker.ps1 -AuditOnly
+# Complete formatting, vet, race, build, PostgreSQL/Redis, SMTP and schema checks.
+.\backend\tests\integration\test_docker.ps1
+# Explicit plain package check after building the image.
+docker run --rm tutti-backend-tests go test ./...
+git diff --check
+git status --short --branch
+```
+
+`flagged_users_test.go` extends `TestSuspensionAdministration`, so existing CI and
+both targeted modes discover it without workflow or runner changes. Tests create
+real cancellation/attendance incidents, mixed and post-threshold counts, both
+cross-faculty directions, retained flags after program moves, two semesters,
+suspension/reinstatement, tied timestamps, page boundaries, stale authority,
+expired/revoked sessions, and snapshot consistency during concurrent commits.
+They compare every public-schema table before/after read and rejected requests.
+
+The runner uses disposable PostgreSQL 17/Redis, rebuilds the existing worker image
+for local SMTP verification, and needs neither a running Compose worker nor real
+university credentials. `.env`, host ports 5433/6379, Compose services and persistent
+volumes remain untouched. No frontend, automatic sanctions, semester filter,
+production-scale latency claim, retention approval or university SSO is included.
+U04/DPO retention approval remains unresolved; see [audit history](audit-history.md).
+
+Local verification on 2026-11-20 passed the targeted `-SuspensionOnly` run, the
+final full Docker runner, and the explicit plain package check above. The full
+runner passed all six flag-review scenarios, existing milestone regressions,
+local SMTP/runtime worker and 33-table schema/legacy/rollback/reapply checks.
+The new fixture's UUID/text parameter and its date overlap with another suite's
+semester were corrected; flag review now uses a separate 2040 test period.
+No production writer or constraint changed. Real university SMTP was deliberately
+skipped, and package-only tests skip service cases; the full runner executes them.
+Hosted GitHub Actions and developer review remain pending for these uncommitted
+changes. The developer's persistent database was neither inspected nor migrated.
+
 ## Historical audit access (NFR12, Issue #26)
 
 `GET /api/v1/coordinator/users/{id}/audit-history` provides bounded, read-only

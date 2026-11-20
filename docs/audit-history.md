@@ -4,6 +4,17 @@ This guide describes the implemented application workflows through migration
 `000015_audit_preservation`. It extends the existing module histories; it does
 not introduce an event store, a general audit service, or a deletion workflow.
 
+Issue #48 adds a separate [home-faculty flag inbox](coordination.md#home-faculty-flagged-user-review-fr18--uc12--uc16--nfr2-issue-48):
+`GET /api/v1/coordinator/flagged-users`. It reuses the existing per-user FLAG and
+VIOLATION history routes for details rather than duplicating private evidence.
+The inbox uses stored flag faculty, current coordinator authority, current total
+user/semester violations (including legacy rows and later incidents) and current
+Identity suspension state in one read-only snapshot. A reinstated or relocated
+user retains the old flag. An old faculty may see that authorized semester total
+without gaining access to another faculty's individual incident details or current
+sanction authority. The six-field summary excludes reasons, grades and evidence.
+No audit record, retention rule, migration or writer changes for Issue #48.
+
 ## Investigation and authoritative sources
 
 The implementation review read the root `AGENTS.md` (no nested guides), the

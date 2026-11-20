@@ -1,5 +1,31 @@
 # Requirements traceability baseline
 
+**Subsequent Issue #48 evidence (local branch `feature/feedback_coordinator_operations`, 2026-11-20):**
+The [home-faculty flag review API](coordination.md#home-faculty-flagged-user-review-fr18--uc12--uc16--nfr2-issue-48)
+implements the missing backend inbox for FR18, UC12, UC16 and NFR2. Coordination
+returns only stored-faculty flags with current user/semester strike totals and
+current Identity suspension state in one read-only repeatable-read snapshot.
+It preserves the distinction between session tutor-faculty adjudication,
+historical flag ownership and current home-faculty sanctions. Six-field summaries,
+strict bounded pagination and existing per-user audit details exclude private
+evidence and client-selected faculty authority. No migration or writer change.
+
+Local verification passed: `test_docker.ps1 -SuspensionOnly`, then the final full
+`test_docker.ps1` (format, vet, race, build, PostgreSQL/Redis regressions, rebuilt
+worker/local SMTP and all 33-table schema/legacy/rollback/reapply checks), followed
+by `docker run --rm tutti-backend-tests go test ./...`. The
+[new integration scenarios](../backend/tests/integration/flagged_users_test.go)
+cover both cross-faculty directions, mixed/post-threshold incidents, uniqueness,
+separate semesters, suspension/reinstatement, program moves, tied pagination,
+live/stale authority, expired/revoked sessions, unchanged database state and
+concurrent snapshot consistency. They run inside `TestSuspensionAdministration`,
+which existing CI discovers without a workflow change. Initial fixture parameter
+typing and shared-semester date assumptions were corrected; no production rule
+or constraint was weakened. University SMTP was deliberately skipped. Hosted CI,
+human review, deployment and Project #11 field updates are not claimed. This
+evidence supersedes only the backend flag-list gap below; the frontend, university
+SSO and U04/DPO retention approval remain outside this issue.
+
 **Subsequent Issue #26 implementation (local branch `feature/feedback_coordinator_operations`, 2026-11-20):**
 Existing NFR12 histories are strengthened with database mutation guards, protected
 original/final decisions, explicit violation recording actors and historical home

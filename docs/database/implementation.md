@@ -12,6 +12,19 @@ Its down script refuses to remove new evidence; it is not a retention mechanism.
 See [audit preservation](../audit-history.md) for the complete guarantees, category
 retention inventory, restricted-role tests and Windows verification commands.
 
+Issue #48's [flag review reader](../coordination.md#home-faculty-flagged-user-review-fr18--uc12--uc16--nfr2-issue-48)
+needs no new migration. It scopes `user_semester_flags` by stored `faculty_id`,
+pages by `flagged_at DESC,id DESC`, then counts `user_violations` only for selected
+user/semester pairs. Existing faculty/time and user/semester indexes support these
+reads; the unique `(user_id,semester_id)` flag and `(user_id,session_id)` violation
+constraints prevent duplicate flags/incidents. Counts include authentic legacy
+rows and all later qualifying incidents, independent of later faculty changes.
+Identity reads `users.is_suspended` for the bounded authorized IDs via a published
+batch port in the same read-only repeatable-read transaction as current coordinator
+authority and flag/count queries. No mutable counter, lock or outbox write is added.
+Separate offset pages can observe different snapshots. Persistent version-14/15
+rollout remains a developer-reviewed action; tests use isolated databases only.
+
 | Migration | Domain and key constraints |
 | --- | --- |
 | 1 | Academic catalog and semesters. Unique subject codes and program–subject links. |

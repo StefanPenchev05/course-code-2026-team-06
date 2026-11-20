@@ -72,7 +72,7 @@ See the [worker guide](docs/workers.md) for expiration polling, SMTP delivery, r
 
 ## Coordination API
 
-See the [Coordination guide](docs/coordination.md) for issue reporting/resolution, tutor monitoring, policy cancellation, home-faculty suspension/reinstatement (Issue #25, FR19 / UC14), preserved audit history, attendance decisions, and Windows PowerShell test commands.
+See the [Coordination guide](docs/coordination.md) for issue reporting/resolution, tutor monitoring, policy cancellation, home-faculty suspension/reinstatement (Issue #25, FR19 / UC14), flagged-user review (Issue #48, FR18 / UC12 / UC16), preserved audit history, attendance decisions, and Windows PowerShell test commands.
 
 ## Requirements baseline
 
