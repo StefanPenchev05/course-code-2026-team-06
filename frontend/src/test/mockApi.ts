@@ -14,6 +14,10 @@ export function json(status: number, body?: unknown): Response {
 }
 
 /**
+ * TEST DOUBLE — not the real backend. Use only for unit/component tests.
+ * Tests that use this do NOT count as API integration evidence (AGENTS.md
+ * frontend §14/§17); verify integration against the running Go API.
+ *
  * Replaces fetch with a small router: keys are "METHOD /api/v1/path" (query string ignored).
  * Unmatched requests answer 404 so a missing mock is easy to spot.
  */
