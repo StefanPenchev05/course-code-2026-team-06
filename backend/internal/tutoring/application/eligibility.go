@@ -15,7 +15,9 @@ type EligibilityTransaction interface {
 	Student(context.Context, string) (identity.Principal, error)
 	Catalog() catalog.AcademicCatalog
 	ActiveOfferings(context.Context, string) ([]domain.Offering, error)
-	Deactivate(context.Context, string) error
+	// Program and faculty come from the locked Identity/Catalog reads above,
+	// and become the withdrawal's immutable event context.
+	Deactivate(ctx context.Context, offering, program, faculty string) error
 }
 
 // RevalidateTutorEligibility reconciles current offerings in its own transaction.
@@ -44,7 +46,8 @@ func RevalidateTutorEligibilityInTransaction(ctx context.Context, tx Eligibility
 	}
 	reader := tx.Catalog()
 	// Lock the current program as well as each existing subject membership.
-	if _, err := reader.GetProgramFaculty(ctx, student.ProgramID); err != nil {
+	faculty, err := reader.GetProgramFaculty(ctx, student.ProgramID)
+	if err != nil {
 		return err
 	}
 	offerings, err := tx.ActiveOfferings(ctx, studentID)
@@ -57,7 +60,7 @@ func RevalidateTutorEligibilityInTransaction(ctx context.Context, tx Eligibility
 			return err
 		}
 		if !ok {
-			if err := tx.Deactivate(ctx, offering.ID); err != nil {
+			if err := tx.Deactivate(ctx, offering.ID, student.ProgramID, faculty); err != nil {
 				return err
 			}
 		}

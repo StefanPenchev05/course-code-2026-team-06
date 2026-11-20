@@ -196,6 +196,39 @@ def check_suspension_migration(psql, migrate):
         raise RuntimeError("migration 14 reapplication changed legacy evidence")
 
 
+def check_audit_migration(psql, migrate):
+    # Existing evidence is captured at version 14, without invented metadata.
+    legacy = """SELECT jsonb_build_object(
+        'violations',(SELECT jsonb_agg(to_jsonb(v) ORDER BY id) FROM user_violations v),
+        'applications',(SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM application_status_history a),
+        'attendance',(SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM attendance_reports a),
+        'suspensions',(SELECT jsonb_agg(to_jsonb(h) ORDER BY id) FROM user_suspension_history h))::text"""
+    before = output(*psql, "-Atc", legacy)
+    run(*migrate, "up", "1")
+    upgraded = legacy.replace("to_jsonb(v)", "(to_jsonb(v)-ARRAY['actor_kind','recorded_by_user_id','home_faculty_id','cancellation_history_id'])")
+    if output(*psql, "-Atc", upgraded) != before:
+        raise RuntimeError("audit migration changed original evidence")
+    if output(*psql, "-Atc", "SELECT count(*) FROM user_violations WHERE actor_kind IS NOT NULL OR home_faculty_id IS NOT NULL OR recorded_by_user_id IS NOT NULL OR cancellation_history_id IS NOT NULL") != "0":
+        raise RuntimeError("audit migration invented legacy attribution")
+    for statement in ["UPDATE attendance_reports SET resolution_note='tampered'",
+                      "UPDATE student_verifications SET faculty_id=faculty_id",
+                      "DELETE FROM user_violations", "TRUNCATE application_status_history"]:
+        run(*psql, "-q", "-c", f"SELECT tutti_test.expect_state('23514',$test${statement}$test$)", stdout=subprocess.DEVNULL)
+    down = (MIGRATIONS / "000015_audit_preservation.down.sql").read_text()
+    evidence = """INSERT INTO tutor_offering_deactivations(offering_id,qualification_id,faculty_id,program_id,actor_kind,changed_at,reason)
+        SELECT o.id,o.qualification_id,p.faculty_id,p.id,'SYSTEM',now(),'Rollback guard fixture'
+        FROM tutor_offerings o JOIN students s ON s.user_id=o.tutor_id JOIN programs p ON p.id=s.program_id LIMIT 1;"""
+    rejected = subprocess.run([*psql,"-q","-c","BEGIN;"+evidence+down], text=True,capture_output=True,timeout=30)
+    if rejected.returncode == 0 or "rollback would remove audit evidence" not in rejected.stderr:
+        raise RuntimeError("audit rollback failed to preserve new evidence")
+    run(*migrate, "down", "1")
+    if output(*psql,"-Atc",legacy) != before:
+        raise RuntimeError("audit rollback changed legacy evidence")
+    run(*migrate, "up", "1")
+    if output(*psql,"-Atc",upgraded) != before:
+        raise RuntimeError("audit reapply changed legacy evidence")
+
+
 def main():
     network = os.environ.get("TUTTI_TEST_DOCKER_NETWORK")
     network_args = ["--network", network, "--network-alias", "schema-postgres"] if network else ["-p", "127.0.0.1::5432"]
@@ -262,13 +295,14 @@ def main():
         run(*psql, "-q", "-f", str(TESTS / "schema.sql"), stdout=subprocess.DEVNULL)
         check_policy_cancellation_migration(psql, migrate)
         check_suspension_migration(psql, migrate)
+        check_audit_migration(psql, migrate)
         check_concurrency(psql)
         run(*psql, "-q", "-c", "DROP SCHEMA tutti_test CASCADE", stderr=subprocess.DEVNULL)
         run(*migrate, "down", "-all")
         check_tables(psql, set())
         run(*migrate, "up")
-        check_tables(psql, EXPECTED_TABLES)
-        print("PASS: all 32 tables, legacy issue/suspension evidence, migrations 12/13/14 rollback, cancellation-origin and suspension constraints/retention guards, concurrent exclusion, complete rollback and reapply.")
+        check_tables(psql, EXPECTED_TABLES | {"tutor_offering_deactivations"})
+        print("PASS: all 33 tables, legacy issue/suspension/disciplinary evidence, migrations 12/13/14/15 rollback, audit retention guards, concurrent exclusion, complete rollback and reapply.")
     except Exception:
         run("docker", "logs", "--tail", "20", container)
         raise

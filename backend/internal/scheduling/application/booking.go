@@ -258,19 +258,21 @@ func (s *BookingService) respond(ctx context.Context, actor identity.Principal, 
 		if err := tx.UpdateSession(ctx, session, previous); err != nil {
 			return err
 		}
-		if session.Late {
-			if err := tx.Discipline().RecordLateCancellation(ctx, coordination.LateCancellation{
-				UserID: actor.ID, SemesterID: session.SemesterID, SessionID: session.ID, HomeFacultyID: home, OccurredAt: now,
-			}); err != nil {
-				return err
-			}
-		}
 		var origin domain.CancellationOrigin
 		if to == domain.Cancelled {
 			origin = domain.ParticipantCancellation
 		}
 		if err := tx.RecordEvent(ctx, Event{SessionID: id, Actor: actor.ID, From: previous, To: to, At: now, Reason: reason, Recipients: []string{recipient}, CancellationOrigin: origin}); err != nil {
 			return err
+		}
+		// The violation's database guard links this authentic history event in
+		// the same transaction. A failed discipline write rolls everything back.
+		if session.Late {
+			if err := tx.Discipline().RecordLateCancellation(ctx, coordination.LateCancellation{
+				UserID: actor.ID, SemesterID: session.SemesterID, SessionID: session.ID, HomeFacultyID: home, OccurredAt: now,
+			}); err != nil {
+				return err
+			}
 		}
 		result = session
 		return nil

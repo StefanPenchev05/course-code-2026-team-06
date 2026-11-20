@@ -60,7 +60,10 @@ func (f *txFake) Decide(_ context.Context, _ ReviewRecord, _ string, status doma
 func (f *txFake) ActiveOfferings(context.Context, string) ([]domain.Offering, error) {
 	return []domain.Offering{{ID: "eligible", SubjectID: subjectID}, {ID: "ineligible", SubjectID: appID}}, nil
 }
-func (f *txFake) Deactivate(_ context.Context, id string) error {
+func (f *txFake) Deactivate(_ context.Context, id, program, faculty string) error {
+	if program != programID || faculty != facultyID {
+		return errors.New("incorrect withdrawal audit scope")
+	}
 	f.offeringChanges = append(f.offeringChanges, id)
 	return nil
 }

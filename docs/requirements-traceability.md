@@ -1,5 +1,23 @@
 # Requirements traceability baseline
 
+**Subsequent Issue #26 implementation (local branch `feature/feedback_coordinator_operations`, 2026-11-20):**
+Existing NFR12 histories are strengthened with database mutation guards, protected
+original/final decisions, explicit violation recording actors and historical home
+faculty, SYSTEM flag evidence, retained offering withdrawal and exact application
+event timestamps. A coordinator-only paginated audit route reads suspension,
+violation and flag history using stored event faculty and live Identity authority.
+See the [writer/evidence/test matrix and retention inventory](audit-history.md).
+Legacy unknown metadata is preserved, university/DPO approval remains unresolved,
+and no unsupported closure/role-change workflow or automatic deletion is claimed.
+The original baseline classifications below are not a substitute for this narrower
+backend evidence; no merge, deployment or hosted CI result is implied.
+Local verification passed on the final implementation: full `test_docker.ps1`
+(format, vet, race, build, real PostgreSQL/Redis regression, migration 15
+preservation/rollback/reapply and rebuilt worker/local SMTP), package
+`go test ./...`, and `git diff --check`. Real university SMTP was deliberately
+skipped. The [handoff and complete file inventory](audit-history.md#implementation-handoff--2026-11-20)
+records exact commands, resolved test failures and remaining operational limits.
+
 Reviewed 2026-11-19 on `main` at `c7ca561` for [Issue #14](https://github.com/StefanPenchev05/course-code-2026-team-06/issues/14). The [requirements document](1.3-1.4_user-story_mapping--requirement_analysis.md) owns normative descriptions; this is the single acceptance/status matrix. [Decisions and outstanding approvals](requirements-decisions.md) distinguish the original PDF from revised rules. Existing diagrams are historical, unchanged.
 
 **Subsequent Issue #22 evidence (local branch `feature/feedback_coordinator_operations`, 2026-11-19):** General issue creation is present, and faculty-scoped coordinator inbox/detail/resolution are implemented. Both `.\backend\tests\integration\test_docker.ps1 -IssuesOnly` and the full `.\backend\tests\integration\test_docker.ps1` passed locally, including authorization races, history rollback, and legacy migration compatibility. This updates the general-issue backend gap recorded below; it does not claim publication on `main`, frontend completion, SSO delivery, or hosted CI results. See the [current Coordination contract](coordination.md#coordinator-issue-inbox-and-resolution-fr17--uc13-issue-22), [issue service](../backend/internal/coordination/application/issues.go), [inbox/resolution integration tests](../backend/tests/integration/issue_inbox_test.go), and [migration 12](../backend/migrations/000012_issue_resolution.up.sql).

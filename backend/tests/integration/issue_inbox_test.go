@@ -128,10 +128,8 @@ func (f *issueFixture) testCoordinatorIssues(t *testing.T) {
 	// Student verification is not a prerequisite for the separate coordinator role.
 	f.exec(t, "INSERT INTO students VALUES($1,'ISSUE-COORD-STUDENT',$2)", fixture(issueCoordinatorA), fixture(1711))
 	f.exec(t, "INSERT INTO student_verifications(student_id,faculty_id) VALUES($1,$2)", fixture(issueCoordinatorA), fixture(1701))
-	defer func() {
-		f.exec(t, "DELETE FROM student_verifications WHERE student_id=$1", fixture(issueCoordinatorA))
-		f.exec(t, "DELETE FROM students WHERE user_id=$1", fixture(issueCoordinatorA))
-	}()
+	// Keep this pending verification as immutable evidence until the disposable
+	// database is removed. The separate coordinator role remains authorized.
 
 	a := f.seedIssue(t, 2001, 1701, false)
 	b := f.seedIssue(t, 2002, 1701, false)
@@ -300,8 +298,10 @@ func (f *issueFixture) testCoordinatorIssues(t *testing.T) {
 		// Simulate pre-11 content only in this isolated test DB. The schema suite
 		// separately tests a real 10 -> 11 -> 12 upgrade with this content.
 		f.exec(t, `BEGIN; ALTER TABLE issue_reports DISABLE TRIGGER issue_reports_description_bounds;
+			ALTER TABLE issue_reports DISABLE TRIGGER audit_decision;
 			UPDATE issue_reports SET description=repeat('é',1001) WHERE id='00000000-0000-0000-0000-000000002011';
-			ALTER TABLE issue_reports ENABLE TRIGGER issue_reports_description_bounds; COMMIT;`)
+			ALTER TABLE issue_reports ENABLE TRIGGER issue_reports_description_bounds;
+			ALTER TABLE issue_reports ENABLE TRIGGER audit_decision; COMMIT;`)
 		before := read(t, id, issueCoordinatorA)
 		if len(before.Description) != 2002 {
 			t.Fatal("legacy evidence changed")

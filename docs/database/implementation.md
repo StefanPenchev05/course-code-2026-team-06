@@ -3,7 +3,14 @@
 > **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](../requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
 
 
-The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Migration 11 adds issue history, bringing the current total to 32; migrations 12–14 support issue resolution, cancellation-origin audit and suspension administration without adding tables. Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
+The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Migration 11 adds issue history; migrations 12–14 support issue resolution, cancellation-origin audit and suspension administration without adding tables. Migration 15 adds offering-withdrawal evidence, bringing the total to 33, and protects account/disciplinary audit records. Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
+
+Migration 15 leaves legacy actor/faculty/cause metadata unknown, guards permanent
+evidence against UPDATE/DELETE/TRUNCATE, and freezes original submissions/final
+decisions. Apply it before the new writers and drain older writers during rollout.
+Its down script refuses to remove new evidence; it is not a retention mechanism.
+See [audit preservation](../audit-history.md) for the complete guarantees, category
+retention inventory, restricted-role tests and Windows verification commands.
 
 | Migration | Domain and key constraints |
 | --- | --- |

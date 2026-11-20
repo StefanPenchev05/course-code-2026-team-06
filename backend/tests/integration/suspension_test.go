@@ -218,6 +218,7 @@ func TestSuspensionAdministration(t *testing.T) {
 	})
 	f.testSuspensionRaces(t)
 	f.testSuspensionAuthority(t)
+	f.testAuditHistory(t)
 	for _, private := range []string{"private suspension evidence", "private failure evidence", "19.37"} {
 		if strings.Contains(f.logs.String(), private) {
 			t.Fatal("private log", private)

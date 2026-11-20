@@ -161,6 +161,16 @@ func TestTutoringAPI(t *testing.T) {
 		t.Fatal(got)
 	}
 
+	// Failed history insertion must also undo approval, profile and offering.
+	exec(`CREATE FUNCTION reject_application_audit_test() RETURNS trigger LANGUAGE plpgsql AS $$
+	 BEGIN IF NEW.to_status='APPROVED' THEN RAISE EXCEPTION 'audit fixture'; END IF; RETURN NEW; END; $$;
+	 CREATE TRIGGER reject_application_audit_test BEFORE INSERT ON application_status_history FOR EACH ROW EXECUTE FUNCTION reject_application_audit_test()`)
+	a.call(t, 500, "POST", reviewPath+first+"/approve", nil, cookies[coordA])
+	exec("DROP TRIGGER reject_application_audit_test ON application_status_history; DROP FUNCTION reject_application_audit_test()")
+	count(1, "SELECT count(*) FROM tutor_applications WHERE id=$1 AND status='PENDING'", first)
+	count(0, "SELECT count(*) FROM tutor_profiles WHERE student_id=$1", tutor)
+	count(0, "SELECT count(*) FROM tutor_offerings WHERE tutor_id=$1", tutor)
+	count(1, "SELECT count(*) FROM application_status_history WHERE application_id=$1", first)
 	// A forced outbox conflict occurs after the profile, offering and history writes.
 	key := "tutor-application-decision:" + first
 	exec(`INSERT INTO notifications (recipient_user_id,type,subject,body,deduplication_key)
@@ -242,6 +252,9 @@ func TestTutoringAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	count(1, "SELECT count(*) FROM tutor_offerings WHERE id=$1 AND NOT is_active AND deactivated_at IS NOT NULL AND deactivation_reason IS NOT NULL", before.ID)
+	count(1, `SELECT count(*) FROM tutor_offering_deactivations h JOIN tutor_offerings o ON o.id=h.offering_id
+	 WHERE h.offering_id=$1 AND h.actor_kind='SYSTEM' AND h.changed_at=o.deactivated_at
+	 AND h.reason=o.deactivation_reason AND h.program_id=$2 AND h.faculty_id=$3`, before.ID, newProgram, facultyA)
 	search(subjectB, 1, "")
 	own := a.call(t, 200, "GET", "/tutors/me", nil, cookies[tutor])
 	assertPrivate(t, own.Body.String())
@@ -287,6 +300,9 @@ func TestTutoringAPI(t *testing.T) {
 		t.Fatalf("offering identity changed: %+v, %v", after, err)
 	}
 	count(1, "SELECT count(*) FROM tutor_qualifications WHERE application_id=$1", first)
+	count(1, "SELECT count(*) FROM tutor_offering_deactivations WHERE offering_id=$1", before.ID)
+	count(0, `SELECT count(*) FROM application_status_history h JOIN tutor_applications a ON a.id=h.application_id
+	 WHERE a.student_id=$1 AND h.changed_at IS DISTINCT FROM CASE WHEN h.from_status IS NULL THEN a.submitted_at ELSE a.reviewed_at END`, tutor)
 	count(1, "SELECT count(*) FROM tutor_offerings o JOIN tutor_qualifications q ON q.id=o.qualification_id WHERE q.application_id=$1 AND o.id=$2", reactivation, before.ID)
 	t.Run("transactional offering revalidation", func(t *testing.T) { testOfferingRevalidation(t, ctx, db, service, tutor, pending) })
 	exec("UPDATE users SET is_suspended=true,suspended_at=now(),suspended_by_coordinator_id=$2,suspension_reason='fixture' WHERE id=$1", tutor, coordA)

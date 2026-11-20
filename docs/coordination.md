@@ -1,5 +1,18 @@
 # Coordination: account administration, monitoring and session oversight
 
+## Historical audit access (NFR12, Issue #26)
+
+`GET /api/v1/coordinator/users/{id}/audit-history` provides bounded, read-only
+SUSPENSION (default), VIOLATION or FLAG history. Live Identity authority and each
+event's stored faculty determine visibility; changing the target's program does
+not transfer historical records. Migration 15 protects evidence, records explicit
+violation actors and SYSTEM flag basis, and preserves final report decisions.
+Private account reasons stay separate from shared session cancellation text.
+
+See [audit preservation](audit-history.md) for the complete API/coverage matrix,
+legacy unknowns, append-only guarantees, retention/DPO dependencies, migration
+rollout restrictions and exact Windows commands (`test_docker.ps1 -AuditOnly`).
+
 ## Suspension and reinstatement (FR19 / UC14, Issue #25)
 
 The coordinator of a student's **current home faculty** can suspend or reinstate

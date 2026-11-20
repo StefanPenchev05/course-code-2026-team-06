@@ -113,6 +113,7 @@ func newSuspensionFixture(t *testing.T) *suspensionFixture {
 	tutoringhttp.New(tutoringService, logger).RegisterRoutes(mux, auth)
 	schedulinghttp.New(scheduling.New(schedulingpg.New(db, identitypg.LockStudent), tutoringService, now), logger).RegisterRoutes(mux, auth)
 	coordhttp.NewSuspension(coord.NewSuspension(coordpg.NewSuspension(db, coordpg.SuspensionDependencies{Accounts: identitypg.SuspensionAccounts, Catalog: academic, Sessions: schedulingpg.SuspensionSessions}), now), logger).RegisterRoutes(mux, auth)
+	coordhttp.NewAudit(coord.NewAudit(coordpg.NewAudit(db, coordpg.AuditDependencies{Faculty: identitypg.ReadCoordinatorFaculty, Accounts: identitypg.SuspensionHistory})), logger).RegisterRoutes(mux, auth)
 	coordhttp.NewPolicyCancellation(coord.NewPolicyCancellation(coordpg.NewPolicyCancellation(db, coordpg.PolicyCancellationDependencies{LockCoordinatorFaculty: identitypg.LockCoordinatorFaculty, Sessions: schedulingpg.PolicySessions}), now), logger).RegisterRoutes(mux, auth)
 	coordhttp.NewMonitoring(coord.NewMonitoring(coordpg.NewMonitoring(db, coordpg.MonitoringDependencies{Faculty: identitypg.ReadCoordinatorFaculty, Tutors: tutoringpg.Monitoring, Activity: feedbackpg.Monitoring, Scheduling: schedulingpg.Monitoring})), logger).RegisterRoutes(mux, auth)
 	home := func(ctx context.Context, tx pgx.Tx, program string) (string, error) {

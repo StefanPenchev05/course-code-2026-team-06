@@ -1,5 +1,11 @@
 # Identity and authentication
 
+Issue #26 adds a transaction-bound Identity suspension-history read port, consumed
+by Coordination's faculty-authorized account audit route. Verification submissions
+and finalized reviews are protected from rewriting/deletion by migration 15;
+resubmission creates a new attempt. See [audit preservation](audit-history.md) for
+historical faculty access, legacy limits and the unresolved DPO retention gate.
+
 > **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
 
 

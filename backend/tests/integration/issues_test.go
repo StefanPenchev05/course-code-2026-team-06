@@ -365,7 +365,7 @@ func TestIssueReporting(t *testing.T) {
 			{"UPDATE issue_status_history SET changed_by_user_id=$2 WHERE issue_report_id=$1", "23514", []any{first, fixture(issueStudentB)}},
 			{"DELETE FROM issue_status_history WHERE issue_report_id=$1", "23514", []any{first}},
 			{"TRUNCATE issue_status_history", "23514", nil},
-			{"DELETE FROM issue_reports WHERE id=$1", "23503", []any{first}},
+			{"DELETE FROM issue_reports WHERE id=$1", "23514", []any{first}},
 			{`INSERT INTO issue_status_history(issue_report_id,to_status,actor_kind,changed_by_user_id) VALUES($1,'OPEN','USER',$2)`, "23505", []any{first, fixture(issueStudentA)}},
 			{`INSERT INTO issue_status_history(issue_report_id,to_status,actor_kind,changed_by_user_id) VALUES($1,'OPEN','USER',$2)`, "23503", []any{fixture(9999), fixture(issueStudentA)}},
 		} {

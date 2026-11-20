@@ -125,8 +125,10 @@ func (t *transaction) ReviewRecord(ctx context.Context, id, faculty string, lock
 func (t *transaction) history(ctx context.Context, id, actor string, from any, to domain.Status, reason string) error {
 	_, err := t.tx.Exec(ctx, `
 		INSERT INTO application_status_history
-			(application_id, changed_by_user_id, actor_kind, from_status, to_status, reason)
-		VALUES ($1,$2,'USER',$3,$4,NULLIF($5,''))`, id, actor, from, to, reason)
+			(application_id, changed_by_user_id, actor_kind, from_status, to_status, reason, changed_at)
+		SELECT id,$2,'USER',$3,$4,NULLIF($5,''),
+		       CASE WHEN $3::application_status IS NULL THEN submitted_at ELSE reviewed_at END
+		FROM tutor_applications WHERE id=$1`, id, actor, from, to, reason)
 	return err
 }
 
@@ -210,10 +212,14 @@ func (t *transaction) ActiveOfferings(ctx context.Context, student string) ([]do
 	})
 }
 
-func (t *transaction) Deactivate(ctx context.Context, id string) error {
+func (t *transaction) Deactivate(ctx context.Context, id, program, faculty string) error {
 	_, err := t.tx.Exec(ctx, `
-		UPDATE tutor_offerings SET is_active = false, deactivated_at = statement_timestamp(),
+		WITH withdrawn AS (UPDATE tutor_offerings SET is_active = false, deactivated_at = statement_timestamp(),
 			deactivation_reason = 'Subject is outside the tutor''s current academic program'
-		WHERE id = $1 AND is_active`, id)
+		WHERE id = $1 AND is_active RETURNING *)
+		INSERT INTO tutor_offering_deactivations
+		    (offering_id,qualification_id,faculty_id,program_id,actor_kind,changed_at,reason)
+		SELECT id,qualification_id,$3,$2,'SYSTEM',deactivated_at,deactivation_reason
+		FROM withdrawn`, id, program, faculty)
 	return err
 }
