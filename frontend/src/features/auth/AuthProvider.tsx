@@ -13,19 +13,23 @@ import { AuthContext, type AuthContextValue, type AuthState } from './AuthContex
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ status: 'loading', user: null });
 
-  const refresh = useCallback(async () => {
-    try {
-      const user = await authApi.me();
-      setState({ status: 'authenticated', user });
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
-        setState({ status: 'anonymous', user: null });
-      } else {
-        // Keep an existing session on a temporary failure; only block the first load.
-        setState((previous) => (previous.status === 'loading' ? { status: 'unavailable', user: null } : previous));
-      }
-    }
-  }, []);
+  // State is only updated in the response callbacks, never synchronously,
+  // so calling refresh() from an effect doesn't cause cascading renders.
+  const refresh = useCallback(
+    (): Promise<void> =>
+      authApi.me().then(
+        (user) => setState({ status: 'authenticated', user }),
+        (error: unknown) => {
+          if (error instanceof ApiError && error.status === 401) {
+            setState({ status: 'anonymous', user: null });
+          } else {
+            // Keep an existing session on a temporary failure; only block the first load.
+            setState((previous) => (previous.status === 'loading' ? { status: 'unavailable', user: null } : previous));
+          }
+        },
+      ),
+    [],
+  );
 
   useEffect(() => {
     onUnauthorized(() => setState({ status: 'anonymous', user: null }));

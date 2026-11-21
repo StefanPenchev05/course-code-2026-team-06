@@ -9,7 +9,7 @@ React + TypeScript web client for the Tutti peer-tutoring platform (Team 6, Soft
 
 ## 1. Running it locally
 
-You need Node.js 20+ and the backend running (see the root `README.md` and `docs/identity.md`).
+You need Node.js 20.19+ or 22.13+ (CI uses 24) and the backend running (see the root `README.md` and `docs/identity.md`).
 
 ### Backend (once)
 
@@ -41,7 +41,8 @@ psql "$DATABASE_URL" -f backend/tests/integration/catalog_fixture.sql   # demo f
 cd frontend
 npm install
 npm run dev        # http://localhost:5173
-npm test           # unit + routing smoke tests
+npm test           # unit + component tests (mocked API, not real-backend evidence)
+npm run lint       # code-quality checks (ESLint)
 npm run typecheck
 npm run build
 ```
@@ -157,5 +158,6 @@ temporary. All login code lives in `features/auth/` so #68 only changes that fol
 | Shared loading, error and form components exist | `shared/ui/` |
 | Foundation smoke tests pass | `npm test` |
 
-Still to do outside this folder: a frontend job in `.github/workflows/` (install, typecheck, test, build).
-Coordinate it with Stefan, who owns CI.
+**CI:** `.github/workflows/frontend.yml` runs lint, typecheck, tests and build on every push or PR that
+changes `frontend/` (on `main` and `features/**` branches). It is separate from Stefan's `backend.yml` and
+doesn't change it; Stefan owns CI, so agree changes to it with him.
