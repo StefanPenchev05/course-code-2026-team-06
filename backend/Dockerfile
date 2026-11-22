@@ -4,7 +4,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd ./cmd
 COPY internal ./internal
-RUN CGO_ENABLED=0 go build -trimpath -o /out/ ./cmd/api ./cmd/worker
+RUN CGO_ENABLED=0 go build -trimpath -o /out/ ./cmd/api ./cmd/worker ./cmd/semester-maintenance
 
 # Optional local/CI toolchain. It never becomes part of the runtime image.
 FROM build AS test
@@ -21,5 +21,6 @@ FROM scratch AS runtime
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/api /tutti-api
 COPY --from=build /out/worker /tutti-worker
+COPY --from=build /out/semester-maintenance /semester-maintenance
 USER 65532:65532
 CMD ["/tutti-api"]

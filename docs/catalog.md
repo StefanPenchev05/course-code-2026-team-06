@@ -1,5 +1,11 @@
 # Academic Catalog
 
+The internal [semester maintenance CLI](semester-maintenance.md) adds trusted,
+explicit calendar creation and read-only impact/rollover reports. It is separate
+from the read-only HTTP catalog below. Calendar validation/identity belong to
+Catalog; transaction-bound Scheduling and Coordination adapters supply aggregate
+dependency evidence. No public calendar administration endpoint is registered.
+
 The Catalog module provides read-only faculty, program, and subject lookups. Its application service validates queries and exposes academic membership checks. The PostgreSQL adapter uses the API's existing pgx pool. Bootstrap wires the Catalog routes onto the same router as Identity and applies Identity's authentication middleware to the protected routes.
 
 The existing migration defines `faculties`, `programs`, `subjects`, and `program_subjects`. A program belongs to one faculty. A subject has one university-wide ID and unique code. The `program_subjects` join table lets several programs point to that same subject, including programs in different faculties. A single program foreign key on `subjects` would prevent that relationship.

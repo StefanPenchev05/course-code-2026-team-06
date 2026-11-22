@@ -1,8 +1,9 @@
 # Run from any directory with Docker Desktop using Linux containers.
 # All databases are disposable; the developer's .env and Compose services are not used.
 [CmdletBinding()]
-param([switch]$NotificationsOnly)
+param([switch]$NotificationsOnly, [switch]$SemestersOnly)
 $ErrorActionPreference = 'Stop'
+if ($NotificationsOnly -and $SemestersOnly) { throw 'Select at most one targeted suite.' }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '../../..')).Path
 $runId = [Guid]::NewGuid().ToString('N')
 $network = "tutti-test-$runId"
@@ -20,6 +21,7 @@ try {
     $networkCreated = $true
     $testCommand = @()
     if ($NotificationsOnly) { $testCommand = @('bash', 'tests/integration/test_identity.sh', '-race', '-run', '^TestNotificationDelivery$') }
+    if ($SemestersOnly) { $testCommand = @('bash', 'tests/integration/test_identity.sh', '-race', '-run', '^TestSemesterMaintenance$') }
     Invoke-Docker run --rm --name $runner --network $network `
         --mount 'type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock' `
         -e "TUTTI_TEST_DOCKER_NETWORK=$network" -e "TUTTI_TEST_CONTAINER=$runner" `

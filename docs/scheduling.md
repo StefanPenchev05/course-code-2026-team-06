@@ -1,5 +1,10 @@
 # Scheduling
 
+For verified calendar entry, exact half-open bounds, read-only dependency reports
+and next-semester tutor reconfirmation, see [trusted semester maintenance](semester-maintenance.md).
+The operator CLI creates calendar rows only. It cannot edit bounds, regenerate
+availability, carry over schedules, cancel sessions or change stored semester attribution.
+
 ## Stage 1: availability
 
 Tutoring availability belongs to the tutor's account and can serve any of their approved subject offerings. A **rule** defines one recurring local weekday and clock interval for a semester. A **slot** is a concrete published time window, either generated from a rule or entered as a one-off. An **exception** records a skipped local date for one rule. A **reservation** is the time held by a requested or accepted session. Published windows can include reserved time.
