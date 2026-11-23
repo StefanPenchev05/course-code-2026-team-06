@@ -1,6 +1,6 @@
 # Real-time updates and WebSockets
 
-> **Status:** version-1 contract and authenticated gateway implemented for #85/#86 on `feat/realtime-websocket-foundation`, 2026-11-23. Domain publishers, worker delivery and React integration remain future work. Backend/frontend owner review of the contract remains required; automated tests do not constitute that agreement.
+> **Status:** version-1 contract, authenticated gateway and scheduling delivery implemented for #85–#87 on `feat/realtime-websocket-foundation`, 2026-11-23. Booking/availability publication and worker-to-API delivery are described in [realtime delivery](realtime-delivery.md); other module publishers and React integration remain future work. Backend/frontend owner review of the contract remains required; automated tests do not constitute that agreement.
 >
 > **Tracking:** #84; backend #85–#89; frontend #90–#94. Relevant application modules: Identity, Scheduling, Tutoring, Coordination and Feedback.
 
@@ -97,8 +97,8 @@ The current branch contains the React HTTP client, but this task adds no WebSock
 - [x] Handshake rejects absent session, expired/revoked/suspended session, invalid Origin and untrusted scope (#86).
 - [x] Normal REST requests retain timeouts while a persistent WebSocket survives the request timeout (#86).
 - [x] Scoped gateway tests isolate users/coordinators/faculties and cover slow clients, heartbeat and shutdown (#86). Domain-specific recipient policies and production load remain #87–#89.
-- [ ] After commit, every affected tab receives (or recovers) the new HTTP state; a rollback publishes nothing (#87/#88).
-- [ ] Worker-originated expiration, account suspension cancellations and adjudication updates resynchronize (#87/#88).
+- [x] Backend commit/rollback, affected-socket delivery and reconnect/refetch are covered for Scheduling (#87). React tab behavior and other module publishers remain #88/#90–#94.
+- [x] Worker-originated expiration, suspension/policy cancellation capture and attendance corrections generate scheduling events (#87). Broader coordination/account event publishers remain #88.
 - [ ] Browser e2e uses independent student/tutor/coordinator contexts; no reload is needed; reconnect resync works (#90–#94).
 - [ ] The relevant Go race/integration and frontend tests run in CI; document any environment limitations.
 
@@ -187,8 +187,7 @@ rules, including verification, participation, tutor ownership, home/tutor facult
 and cross-program subject eligibility as applicable. Ordinary students, tutors,
 and coordinators cannot subscribe to another user or faculty. Faculty delivery
 uses explicit server-selected coordinator user IDs and current policy checks;
-there is no faculty room or global broadcast API. No production caller publishes
-in this stage, so the endpoint remains quiet apart from control frames.
+there is no faculty room or global broadcast API. Scheduling publishers now feed this gateway through the dedicated #87 outbox and Redis fanout; see [delivery](realtime-delivery.md).
 
 Full queues disconnect the slow connection instead of blocking publishers. The
 single writer serializes event writes and pings; a separate reader handles
@@ -216,7 +215,9 @@ interval. Do not add wildcard origins, trust proxy-supplied user IDs, or move
 session credentials to a URL. Reconnect/refetch remains mandatory behind proxies
 and across API restarts. No frontend/proxy configuration is added in this task.
 
-## Required integration for #87
+## Foundation integration requirements (implemented in #87)
+
+The following foundation handoff is fulfilled by the [current scheduling delivery](realtime-delivery.md). Transaction capture uses shared SQL enqueue triggers, and public-view watches now use an authenticated HTTP endpoint with shared Redis leases; the WebSocket protocol itself stays unchanged. The list records the original boundaries for future publishers.
 
 1. Depend on `internal/realtime/application.Publisher`, not the hub or HTTP
    handler. The implemented method is:
@@ -277,9 +278,7 @@ bash backend/tests/integration/test_identity.sh -race
 ```
 
 Tests use synthetic, explicitly scoped events; there is no public test-publish
-endpoint. Domain mutation publishers, transaction rollback/retry publication,
-worker fanout, distributed delivery/load tests and React/browser journeys cannot
-be claimed from this gateway's test results. The #85 human agreement criterion
+endpoint. Scheduling publication, rollback/retry and worker fanout now have separate #87 tests described in [delivery](realtime-delivery.md). Production load and React/browser journeys remain separate work. The #85 human agreement criterion
 still needs backend/frontend owner review. No GitHub issue is closed by these
 changes.
 

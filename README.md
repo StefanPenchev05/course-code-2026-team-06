@@ -70,7 +70,7 @@ See [trusted semester maintenance](docs/semester-maintenance.md) for verified ca
 
 ## Real-time updates
 
-The [real-time WebSocket guide](docs/realtime.md) describes the authenticated `GET /ws` gateway and versioned invalidation contract implemented for #85/#86. Domain publishers, worker fanout and React integration remain future work; the gateway alone emits no business events. The delivery plan is tracked in [#84](https://github.com/StefanPenchev05/course-code-2026-team-06/issues/84): backend issues #85–#89 and frontend issues #90–#94.
+The [real-time WebSocket guide](docs/realtime.md) describes the authenticated `GET /ws` gateway and versioned invalidation contract implemented for #85/#86. [Scheduling delivery](docs/realtime-delivery.md) now publishes booking/availability changes from both API and worker through a transactional outbox and Redis fanout (#87). React integration and other module publishers remain future work. The delivery plan is tracked in [#84](https://github.com/StefanPenchev05/course-code-2026-team-06/issues/84): backend issues #85–#89 and frontend issues #90–#94.
 
 Scheduling publication (#87) must use committed events and current recipient/resource authorization; see the exact integration contract in the guide. The [Codex starting brief](docs/codex-realtime-foundation.md) scopes this foundation work. The current React frontend remains unchanged by this gateway task; WebSocket client integration is tracked separately in #90–#94.
 
