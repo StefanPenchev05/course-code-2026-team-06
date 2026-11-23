@@ -12,6 +12,9 @@ import { TutorSearchPage } from '../pages/TutorSearchPage';
 import { RouteErrorPage } from '../pages/RouteErrorPage';
 import { AppLayout } from './AppLayout';
 import { PublicOnly, RequireAuth, RequireRole } from './guards';
+import { CoordinatorTutorApplicationPage } from '../pages/CoordinatorTutorApplicationPage';
+import { CoordinatorTutorApplicationsPage } from '../pages/CoordinatorTutorApplicationsPage';
+import { TutorApplicationsPage } from '../pages/TutorApplicationsPage';
 
 /**
  * All screens of the app. Replace a ComingSoonPage with the real page when
@@ -40,7 +43,7 @@ export const routes: RouteObject[] = [
               { path: 'tutors', element: <TutorSearchPage /> },
               { path: 'tutors/:id', element: <TutorProfilePage /> },
               { path: 'sessions', element: <MySessionsPage /> },
-              { path: 'tutor-applications', element: <ComingSoonPage title="Become a tutor" issue={30} /> },
+              { path: 'tutor-applications', element: <TutorApplicationsPage /> },
             ],
           },
           {
@@ -52,7 +55,11 @@ export const routes: RouteObject[] = [
           },
           {
             element: <RequireRole role="coordinator" />,
-            children: [{ path: 'coordinator/*', element: <ComingSoonPage title="Coordinator" issue={35} /> }],
+            children: [
+              { path: 'coordinator/tutor-applications', element: <CoordinatorTutorApplicationsPage /> },
+              { path: 'coordinator/tutor-applications/:id', element: <CoordinatorTutorApplicationPage /> },
+              { path: 'coordinator/*', element: <ComingSoonPage title="Coordinator" issue={35} /> },
+            ],
           },
         ],
       },

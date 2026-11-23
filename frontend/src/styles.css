@@ -140,3 +140,12 @@ textarea.field__input { resize: vertical; min-height: 5rem; }
 .badge--accepted, .badge--completed { background: var(--color-success-bg); }
 .badge--declined, .badge--expired, .badge--cancelled, .badge--no_show { background: var(--color-warning-bg); }
 .cancel-form { margin-top: 0.75rem; }
+
+/* Tutor applications (#30) */
+.application__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.application__head h2 { margin: 0; font-size: 1.05rem; }
+.badge--approved { background: var(--color-success-bg); }
+.badge--rejected { background: var(--color-warning-bg); }
+.details dt { font-weight: 600; margin-top: 0.5rem; }
+.details dd { margin: 0; }
+.preserve-lines { white-space: pre-wrap; overflow-wrap: anywhere; }
