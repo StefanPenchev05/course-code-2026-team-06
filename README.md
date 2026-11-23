@@ -60,16 +60,26 @@ See the [Tutoring guide](docs/tutoring.md) for applications, coordinator review,
 
 The [backend workflow](.github/workflows/backend.yml) runs on pull requests targeting `main`, pushes to `main`, and manual runs. It checks formatting, runs Go vet and race-enabled tests, builds the API, and runs the PostgreSQL and Redis integration suites with disposable databases.
 
-After the checks pass on `main`, download the Linux amd64 delivery archive from the workflow run's **Artifacts** section. The archive contains the `tutti-api` and `tutti-worker` executables and the SQL migrations. Artifacts are retained for 14 days. Delivery currently ends at packaging. Deploying requires a target environment with PostgreSQL, Redis, and the [Identity configuration](docs/identity.md).
+After the checks pass on `main`, download the Linux amd64 delivery archive from the workflow run's **Artifacts** section. The archive contains the `tutti-api`, `tutti-worker` and operator-only `semester-maintenance` executables and the SQL migrations. Artifacts are retained for 14 days. Delivery currently ends at packaging. Deploying requires a target environment with PostgreSQL, Redis, and the [Identity configuration](docs/identity.md).
 
 ## Scheduling API
 
 See the [Scheduling guide](docs/scheduling.md) for recurring availability, exceptions, one-off windows, and student-facing free intervals.
 
+See [trusted semester maintenance](docs/semester-maintenance.md) for verified calendar inputs, PowerShell dry-run/apply commands, read-only impact analysis and rollover reconfirmation.
+
 ## Background workers
 
 See the [worker guide](docs/workers.md) for expiration polling, SMTP delivery, retries, and Compose setup.
 
+## Coordination API
+
+See the [Coordination guide](docs/coordination.md) for issue reporting/resolution, tutor monitoring, policy cancellation, home-faculty suspension/reinstatement (Issue #25, FR19 / UC14), flagged-user review (Issue #48, FR18 / UC12 / UC16), preserved audit history, attendance decisions, and Windows PowerShell test commands.
+
 ## Requirements baseline
 
 See the [current requirements](docs/1.3-1.4_user-story_mapping--requirement_analysis.md), [traceability matrix](docs/requirements-traceability.md) and [decision log](docs/requirements-decisions.md) for approved scope, implementation evidence and outstanding decisions. Uni.lu-only SSO is mandatory; current local-password Identity APIs are legacy pending migration.
+
+## Local SSO provider demo
+
+See the [Keycloak course-demo guide](docs/sso-demo.md) for optional local OIDC infrastructure, synthetic identities, startup and verification. This is not official Uni.lu authentication; Go login/callback integration remains Issue #65.

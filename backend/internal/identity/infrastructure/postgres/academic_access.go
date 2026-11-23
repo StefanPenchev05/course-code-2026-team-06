@@ -32,11 +32,20 @@ func LockStudent(ctx context.Context, tx pgx.Tx, id string) (domain.Principal, e
 
 // LockCoordinatorFaculty resolves and locks the current coordinator assignment.
 func LockCoordinatorFaculty(ctx context.Context, tx pgx.Tx, id string) (string, error) {
+	return coordinatorFaculty(ctx, tx, id, " FOR SHARE OF c, u")
+}
+
+// ReadCoordinatorFaculty resolves current authority inside a read-only snapshot.
+// The caller must use this same snapshot for every subsequent authorized read.
+func ReadCoordinatorFaculty(ctx context.Context, tx pgx.Tx, id string) (string, error) {
+	return coordinatorFaculty(ctx, tx, id, "")
+}
+
+func coordinatorFaculty(ctx context.Context, tx pgx.Tx, id, lock string) (string, error) {
 	var faculty string
 	err := tx.QueryRow(ctx, `
 		SELECT c.faculty_id::text FROM coordinators c JOIN users u ON u.id = c.user_id
-		WHERE c.user_id = $1 AND NOT u.is_suspended AND u.closed_at IS NULL
-		FOR SHARE OF c, u`, id).Scan(&faculty)
+		WHERE c.user_id = $1 AND NOT u.is_suspended AND u.closed_at IS NULL`+lock, id).Scan(&faculty)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = domain.ErrForbidden
 	}

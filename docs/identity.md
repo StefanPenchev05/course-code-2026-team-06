@@ -1,5 +1,11 @@
 # Identity and authentication
 
+Issue #26 adds a transaction-bound Identity suspension-history read port, consumed
+by Coordination's faculty-authorized account audit route. Verification submissions
+and finalized reviews are protected from rewriting/deletion by migration 15;
+resubmission creates a new attempt. See [audit preservation](audit-history.md) for
+historical faculty access, legacy limits and the unresolved DPO retention gate.
+
 > **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
 
 
@@ -64,6 +70,32 @@ Redis stores the account ID under a key derived from the opaque cookie and autom
 A trusted university provisioning process can call `application.Service.IssueActivation` with the pre-provisioned coordinator ID and an `ActivationMailer`. It stores a SHA-256 digest of a random token and hands the raw token to the mailer for that coordinator's stored address. The public activation route consumes the token and sets the password in one transaction. Once a password is set, other issued activation tokens cannot activate the account. An email delivery failure can be retried by issuing a new token. The PostgreSQL record from a failed delivery expires normally.
 
 The integration tests supply a capture mailer. The [shared SMTP transport](workers.md) can be injected as the activation mailer by trusted provisioning. Activation sends directly and keeps raw tokens out of the durable notification outbox. Production still requires a trusted provisioning entry point, SMTP configuration, HTTPS, and deployment-level limits for public authentication requests.
+
+## Suspension administration (FR19 / UC14, Issue #25)
+
+The [Coordination workflow](coordination.md#suspension-and-reinstatement-fr19--uc14-issue-25)
+provides `POST /api/v1/coordinator/users/{id}/suspend` and `/reinstate`, each with a
+required `reason`. Identity's published `SuspensionAccounts` capability owns the
+locked account state, student membership and existing `user_suspension_history`;
+Catalog resolves the current home faculty in the same transaction. Coordinator-only
+targets without student membership have no academic home faculty and return 404.
+
+Suspension is account-wide and has no automatic expiry. Existing login cookies and
+fresh logins fail while the account is suspended because authentication reloads
+PostgreSQL on every protected request. No Redis role cache or revocation index is
+added. Reinstatement allows an unexpired/unrevoked cookie to resume only the roles
+it currently qualifies for. Verification, tutor approvals, withdrawn offerings,
+closure and previous cancellations remain independent; nothing is automatically
+restored. Closed accounts and repeated transitions return conflict.
+
+Account decisions retain actor, home faculty, both suspension states, trimmed reason
+and server timestamp. Reinstatement retains last suspension metadata and appends
+its own reason rather than overwriting previous evidence. Migration 14 protects the
+existing history from UPDATE/DELETE/TRUNCATE and validates new reasons without
+rewriting legacy rows. The account, all future session cancellations, histories and
+generic outbox notices share one PostgreSQL transaction. Public profiles and logs
+do not expose administrative reasons. Apply migration 14 before updated binaries;
+see [database migration ordering](database/implementation.md#suspension-administration-transaction-contract).
 
 ## Tests
 
