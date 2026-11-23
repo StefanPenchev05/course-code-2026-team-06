@@ -3,7 +3,7 @@ import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
 import { Alert, Button, TextArea } from '../../shared/ui';
 import { browserTimeZone, MODE_LABEL } from '../../shared/utils/datetime';
 import { sessionsApi } from './api';
-import { bookingError, byteLength, isLateCancellation, isWebLink, PURPOSE_LABEL, REASON_MAX_BYTES, STATUS_LABEL } from './rules';
+import { bookingError, byteLength, isLateCancellation, isWebLink, PURPOSE_LABEL, REASON_MAX_BYTES, statusLabel } from './rules';
 import type { Session, SessionStatus } from './types';
 
 const CANCELLABLE: SessionStatus[] = ['REQUESTED', 'ACCEPTED'];
@@ -26,7 +26,7 @@ export function SessionCard({ session, onChanged, timeZone = browserTimeZone() }
     <li className="card session">
       <div className="session__head">
         <h3 className="card__title">{session.subject_name}</h3>
-        <span className={`badge badge--${session.status.toLowerCase()}`}>{STATUS_LABEL[session.status] ?? session.status}</span>
+        <span className={`badge badge--${session.status.toLowerCase()}`}>{statusLabel(session)}</span>
       </div>
       <p className="card__meta">
         {when.format(new Date(session.starts_at))}–{until.format(new Date(session.ends_at))} · {session.duration_minutes} min ·{' '}

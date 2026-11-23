@@ -27,6 +27,24 @@ const STEP_MS = 30 * 60 * 1000;
 const NOTICE_MARGIN_MS = 5 * 60 * 1000;
 export const DESCRIPTION_MAX_BYTES = 4000;
 export const REASON_MAX_BYTES = 2000;
+export const MEETING_LINK_MAX_BYTES = 2048;
+export const MEETING_ROOM_MAX_BYTES = 500;
+
+/** The meeting-link rule of domain.Meeting.Validate: http(s), a host, no spaces, no user info. */
+export function validMeetingLink(value: string): boolean {
+  if (!value || /\s/.test(value) || byteLength(value) > MEETING_LINK_MAX_BYTES) return false;
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'https:' || url.protocol === 'http:') && url.hostname !== '' && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
+/** Whether the tutor may mark the session completed: only once its scheduled end has passed. */
+export function hasEnded(endsAt: string, now = new Date()): boolean {
+  return now.getTime() >= new Date(endsAt).getTime();
+}
 
 /**
  * Start times (every 30 minutes, on the hour and half hour) inside a free
@@ -56,7 +74,7 @@ export function bookingError(error: unknown): string {
     if (/reservation/i.test(error.message)) {
       return 'You or the tutor already have a session at this time. Choose another time.';
     }
-    if (/expired/i.test(error.message)) return 'This request has expired: the tutor didn’t answer in time.';
+    if (/expired/i.test(error.message)) return 'This request has expired: the answer deadline has passed.';
     return 'This session was changed in the meantime (for example answered or cancelled). Reload the page to see its status.';
   }
   if (error instanceof ApiError && error.status === 422) {
@@ -66,6 +84,8 @@ export function bookingError(error: unknown): string {
     if (/both programs/i.test(message)) return 'This subject isn’t part of both your program and the tutor’s, so it can’t be booked.';
     if (/no longer approved/i.test(message)) return 'The tutor no longer teaches this subject.';
     if (/yourself/i.test(message)) return 'You can’t book a session with yourself.';
+    if (/meeting url/i.test(message)) return 'Enter a meeting link that starts with https:// (for example a Teams or Zoom link).';
+    if (/room or location/i.test(message)) return 'Enter the room or place where you will meet.';
     const text = message.replace(/^invalid booking:\s*/i, '');
     if (text) return text.charAt(0).toUpperCase() + text.slice(1);
   }
@@ -84,6 +104,12 @@ export const STATUS_LABEL: Record<SessionStatus, string> = {
   NO_SHOW: 'No-show',
 };
 
+
+/** The status in words for whoever is looking: a tutor is waited on, a student waits. */
+export function statusLabel(session: { status: SessionStatus; viewer_role?: 'STUDENT' | 'TUTOR' }): string {
+  if (session.status === 'REQUESTED' && session.viewer_role === 'TUTOR') return 'Waiting for your answer';
+  return STATUS_LABEL[session.status] ?? session.status;
+}
 
 /** Only http(s) links become clickable; anything else (e.g. "javascript:") is shown as text. */
 export function isWebLink(value: string): boolean {

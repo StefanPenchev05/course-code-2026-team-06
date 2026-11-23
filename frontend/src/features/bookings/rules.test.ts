@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../shared/api/client';
-import { bookingError, isLateCancellation, isWebLink, PURPOSES, startOptions } from './rules';
+import { bookingError, hasEnded, isLateCancellation, isWebLink, PURPOSES, startOptions, validMeetingLink } from './rules';
 
 const iso = (date: Date) => date.toISOString();
 
@@ -66,5 +66,23 @@ describe('isWebLink', () => {
     expect(isWebLink('https://meet.example/abc')).toBe(true);
     expect(isWebLink('javascript:alert(1)')).toBe(false);
     expect(isWebLink('Room B-203')).toBe(false);
+  });
+});
+
+describe('validMeetingLink', () => {
+  it('follows the backend rule: http(s), a host, no spaces, no user info', () => {
+    expect(validMeetingLink('https://teams.example/meet/123')).toBe(true);
+    expect(validMeetingLink('teams.example/meet')).toBe(false);
+    expect(validMeetingLink('https://user:pw@meet.example')).toBe(false);
+    expect(validMeetingLink('https://meet.example/a b')).toBe(false);
+    expect(validMeetingLink('ftp://meet.example')).toBe(false);
+  });
+});
+
+describe('hasEnded', () => {
+  it('allows completion from the scheduled end on', () => {
+    const now = new Date('2030-01-07T12:00:00Z');
+    expect(hasEnded('2030-01-07T12:00:00Z', now)).toBe(true);
+    expect(hasEnded('2030-01-07T12:00:01Z', now)).toBe(false);
   });
 });

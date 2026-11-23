@@ -149,6 +149,7 @@ describe('MySessionsPage', () => {
     const accepted = screen.getByRole('heading', { name: 'Databases' }).closest('li')!;
     expect(within(accepted).getByText('Confirmed')).toBeInTheDocument();
     expect(within(accepted).getByText('You are the tutor')).toBeInTheDocument();
+    // A tutor waits on nobody: their own requests read "Waiting for your answer" (checked in TeachingPage tests).
     expect(within(accepted).getByRole('link', { name: 'https://meet.example/x' })).toBeInTheDocument();
   });
 

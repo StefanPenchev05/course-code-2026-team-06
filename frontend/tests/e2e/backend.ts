@@ -134,7 +134,13 @@ export async function approvedTutorWithFreeTime(
  * A verified student requests a 60-minute session at the start of one of the
  * tutor's windows (real POST /sessions). The REQUESTED session then reserves that time.
  */
-export async function bookWindow(learner: Student, tutorId: string, windowId: string, startsAt: string): Promise<void> {
+export async function bookWindow(
+  learner: Student,
+  tutorId: string,
+  windowId: string,
+  startsAt: string,
+  description = 'E2E booking that protects this window.',
+): Promise<string> {
   const api = await loggedIn(learner.email, learner.password);
   try {
     const profile = (await (await api.get(`/api/v1/tutors/${tutorId}`)).json()) as { data: { offerings: { id: string }[] } };
@@ -146,10 +152,11 @@ export async function bookWindow(learner: Student, tutorId: string, windowId: st
         duration_minutes: 60,
         mode: 'ONLINE',
         purpose: 'EXAM_PREPARATION',
-        description: 'E2E booking that protects this window.',
+        description,
       },
     });
     expect(booked.status(), `booking: ${await booked.text()}`).toBe(201);
+    return ((await booked.json()) as { data: { id: string } }).data.id;
   } finally {
     await api.dispose();
   }

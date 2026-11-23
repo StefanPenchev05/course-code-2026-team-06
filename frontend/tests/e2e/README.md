@@ -98,4 +98,17 @@ free time" without depending on screens that don't exist yet.
   by the database's overlap rule (real 409) with a clear message. Cancelling requires a reason;
   afterwards the session leaves the active list and shows as cancelled with the reason.
 
+## Journeys covered (issue #33)
+
+- Two students request sessions with one tutor. On the Teaching page the tutor declines one (a
+  reason is required) and accepts the other (an online session needs a valid meeting link); the
+  accepted one moves to "Confirmed sessions". Before the session ends, "Mark as completed" is not
+  offered and the real server also refuses completion (409); answering the declined request again
+  is refused (409). The students' real API views show ACCEPTED with the link and DECLINED with the
+  reason, and the accepted student sees the link in My sessions.
+- **Not covered here:** completing a session that has ended. Booking needs at least 3 hours' notice,
+  the real API uses the real clock, and the database forbids moving a booked session, so no
+  session can end during a run. Component tests cover that path; the backend's own integration
+  tests cover it with a test clock.
+
 Failed runs keep a screenshot and trace in `test-results/` (`npx playwright show-trace <file>`).
