@@ -20,6 +20,10 @@ func RegisterWatches(mux *http.ServeMux, auth *identityhttp.Handler, routing *ap
 			w.WriteHeader(status)
 			_, _ = w.Write([]byte(`{"error":"Availability watch refused"}`))
 		}
+		if r.URL.RawQuery != "" || r.URL.ForceQuery {
+			fail(400)
+			return
+		}
 		media, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 		if err != nil || media != "application/json" {
 			fail(400)

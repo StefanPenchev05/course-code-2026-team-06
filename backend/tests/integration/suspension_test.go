@@ -236,6 +236,9 @@ func TestSuspensionAdministration(t *testing.T) {
 
 func (f *suspensionFixture) assertDecision(t *testing.T, id string, target, actor int, suspend bool, cancelled int) {
 	t.Helper()
+	f.count(t, cancelled, `SELECT count(*) FROM session_status_history h WHERE h.suspension_history_id=$1
+		AND (SELECT count(*) FROM realtime_events e WHERE e.event_type='booking.changed' AND e.entity_id=h.session_id)
+		  = (SELECT count(*) FROM session_status_history all_h WHERE all_h.session_id=h.session_id)`, id)
 	f.count(t, 1, `SELECT count(*) FROM user_suspension_history h JOIN users u ON u.id=h.user_id
 		WHERE h.id=$1 AND h.user_id=$2 AND h.changed_by_coordinator_id=$3 AND h.is_suspended=$4 AND h.was_suspended<>h.is_suspended
 		AND h.reason=$5 AND u.is_suspended=h.is_suspended AND h.changed_at=$6`, id, fixture(target), fixture(actor), suspend, strings.TrimSpace(suspensionReason["reason"]), time.UnixMicro(f.clock.Load()))

@@ -392,6 +392,24 @@ func TestRealtimeSchedulingOutbox(t *testing.T) {
 		f.session(t, 200, "POST", "/sessions/"+bookingID+"/cancel", map[string]string{"reason": "cancel"}, bookingTutor)
 		drain()
 	})
+	t.Run("completion and confirmed attendance correction", func(t *testing.T) {
+		f.setTime(0)
+		defer f.setTime(0)
+		id := f.request(t, 201, bookingStudent, 90*time.Hour, bookingOffer, bookingSlot)
+		f.session(t, 200, "POST", tutorRequestsPath+id+"/accept", testMeeting, bookingTutor)
+		drain()
+		f.setTime(91 * time.Hour)
+		f.session(t, 200, "POST", "/tutors/me/sessions/"+id+"/complete", nil, bookingTutor)
+		f.count(t, 1, "SELECT count(*) FROM realtime_events WHERE dispatched_at IS NULL AND event_type='booking.changed'")
+		drain()
+		wait(studentEvents, app.BookingChanged, id)
+		report := f.session(t, 201, "POST", "/sessions/"+id+"/no-show-reports", map[string]string{"description": "Attendance allegation"}, bookingStudent)["id"].(string)
+		f.session(t, 200, "POST", "/coordinator/attendance-reports/"+report+"/confirm", map[string]string{"resolution_note": "Evidence reviewed"}, bookingCoordinator)
+		f.count(t, 1, "SELECT count(*) FROM realtime_events WHERE dispatched_at IS NULL AND event_type='booking.changed'")
+		drain()
+		wait(tutorEvents, app.BookingChanged, id)
+		f.count(t, 1, "SELECT count(*) FROM tutoring_sessions WHERE id=$1 AND status='NO_SHOW'", id)
+	})
 	t.Run("recurrence edits deletion exceptions and one-off windows", func(t *testing.T) {
 		f.exec(t, "INSERT INTO semesters(id,name,starts_at,ends_at) VALUES($1,'Realtime calendar','2027-01-11T00:00Z','2027-02-01T00:00Z')", fixture(87001))
 		input := map[string]any{"semester_id": fixture(87001), "iso_weekday": 1, "local_start_time": "09:00", "local_end_time": "10:00", "time_zone": "Europe/Luxembourg", "allowed_mode": "ONLINE"}
@@ -434,6 +452,50 @@ func TestRealtimeSchedulingOutbox(t *testing.T) {
 		f.session(t, 200, "POST", tutorRequestsPath+bookingID+"/decline", map[string]string{"reason": "declined"}, bookingTutor)
 		drain()
 		wait(events, app.BookingChanged, bookingID)
+	})
+	t.Run("watch bounds expiry and current visibility", func(t *testing.T) {
+		for n := 0; n < 32; n++ {
+			if _, err := watches.Register(f.ctx, fixture(87900), fixture(88000+n)); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := watches.Register(f.ctx, fixture(87900), fixture(88999)); !errors.Is(err, app.ErrWatch) {
+			t.Fatal("per-user watch limit missing")
+		}
+		prefix := "tutti:{realtime}:watches:"
+		// Advance this synthetic lease's score rather than waiting ten minutes.
+		if err := f.redis.ZAdd(f.ctx, prefix+"user:"+fixture(bookingOtherStudent), redis.Z{Score: 1, Member: fixture(bookingTutor)}).Err(); err != nil {
+			t.Fatal(err)
+		}
+		if ok, err := watches.Contains(f.ctx, fixture(bookingOtherStudent), fixture(bookingTutor)); err != nil || ok {
+			t.Fatal("expired lease accepted", err)
+		}
+		f.a.call(t, 200, "POST", "/realtime/availability-watches", map[string]string{"tutor_id": fixture(bookingTutor)}, f.cookie[bookingOtherStudent])
+		f.exec(t, "UPDATE tutor_offerings SET is_active=false,deactivated_at=now(),deactivation_reason='Test withdrawal' WHERE id=$1", fixture(bookingOffer))
+		f.a.call(t, 403, "POST", "/realtime/availability-watches", map[string]string{"tutor_id": fixture(bookingTutor)}, f.cookie[bookingOtherStudent])
+	})
+	t.Run("subscriber loss forces resync instead of silent stale sockets", func(t *testing.T) {
+		// Only the disposable runner's Redis is targeted; this command is never
+		// used by application code or against a development/shared instance.
+		if err := f.redis.Do(f.ctx, "CLIENT", "KILL", "TYPE", "pubsub").Err(); err != nil {
+			t.Fatal(err)
+		}
+		realtimeClosed(t, tutorEvents)
+		realtimeClosed(t, viewerEvents)
+		deadline := time.Now().Add(3 * time.Second)
+		for {
+			counts, err := f.redis.PubSubNumSub(f.ctx, fanout.Channel).Result()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if counts[fanout.Channel] == 2 {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("fanout did not resubscribe")
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
 	})
 }
 

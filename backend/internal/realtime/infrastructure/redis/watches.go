@@ -17,6 +17,7 @@ func NewWatches(client *redis.Client) *Watches { return &Watches{client} }
 var registerWatch = redis.NewScript(`
 local t=redis.call('TIME'); local now=t[1]*1000+math.floor(t[2]/1000); local until_at=now+600000
 redis.call('ZREMRANGEBYSCORE',KEYS[1],'-inf',now)
+redis.call('ZREMRANGEBYSCORE',KEYS[2],'-inf',now)
 redis.call('ZREMRANGEBYSCORE',KEYS[3],'-inf',now)
 if not redis.call('ZSCORE',KEYS[1],ARGV[2]) and
    (redis.call('ZCARD',KEYS[1])>=32 or redis.call('ZCARD',KEYS[3])>=16384) then return 0 end

@@ -130,6 +130,9 @@ func (r *Receiver) Receive(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	if e.ID != id {
+		return ErrInvalidEvent
+	}
 	if err := e.Validate(); err != nil {
 		return err
 	}
