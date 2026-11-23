@@ -27,6 +27,7 @@ import (
 	feedbackpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/infrastructure/postgres"
 	feedbackhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/feedback/interfaces/http"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/application"
+	oidcprovider "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/oidc"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/postgres"
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/security"
@@ -81,6 +82,10 @@ func browserOrigin(value string) (bool, error) {
 func Run(ctx context.Context, logger *slog.Logger) error {
 	origin := env("PUBLIC_ORIGIN", "http://localhost:8080")
 	secure, err := browserOrigin(origin)
+	if err != nil {
+		return err
+	}
+	oidcConfig, err := oidcSettings(origin)
 	if err != nil {
 		return err
 	}
@@ -142,6 +147,15 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 	mux := http.NewServeMux()
 	identity := identityhttp.New(service, origin, secure, logger)
 	identity.RegisterRoutes(mux)
+	if oidcConfig != nil {
+		provider, err := oidcprovider.New(startup, *oidcConfig)
+		if err != nil {
+			return err
+		}
+		login := application.NewOIDCLogin(provider, sessionredis.NewOIDCTransactions(client), oidcConfig.TransactionTTL)
+		identity.RegisterOIDC(mux, login)
+	}
+
 	catalogService := catalog.New(catalogpostgres.New(pool))
 	cataloghttp.New(catalogService, logger).RegisterRoutes(mux, identity.RequireAuthentication)
 	tutoringRepo := tutoringpostgres.New(pool, tutoringpostgres.Dependencies{

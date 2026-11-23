@@ -110,7 +110,7 @@ The script checks the import file, exact callback/origin, confidential code flow
 
 Use the console's **Clients → tutti-backend** to inspect settings manually. A callback attempt currently fails to connect to Tutti or returns 404 because #65 has not implemented it; this is not a provider import failure.
 
-## Intended Go/Redis integration — Issue #65, not implemented here
+## Go/Redis integration plan — only Stage 1 initiation now implemented
 
 1. Browser asks Tutti to sign in. Go creates single-use state, nonce and a PKCE verifier/challenge, retaining correlation securely server-side.
 2. Browser redirects to the exact issuer's authorization endpoint with `response_type=code`, `scope=openid profile email` and S256 challenge. Keycloak handles credentials and the IdP browser session.
@@ -118,7 +118,7 @@ Use the console's **Clients → tutti-backend** to inspect settings manually. A 
 4. Go validates signature using JWKS, expected issuer/audience, nonce, expiration and other protocol checks using maintained OIDC libraries. Bind the stable `(issuer, sub)` to a Tutti account through the approved linking workflow; never merge or elevate accounts solely by email or IdP role.
 5. Go checks current Tutti permissions, enrollment approval and suspension, then issues its existing opaque HttpOnly application cookie backed by Redis. Tokens must not go into browser storage or replace PostgreSQL authorization checks. Tutti logout revokes its Redis session; IdP-session logout is a separate behavior to define/test.
 
-The [existing Identity guide](identity.md), [Identity service](../backend/internal/identity/application/service.go), [cookie handler](../backend/internal/identity/interfaces/http/handler.go) and [Redis store](../backend/internal/identity/infrastructure/redis/session_store.go) remain unchanged. No Go OIDC environment variables, routes, token verifier, database binding or frontend login are introduced here. #66–#70 retain their separate account-linking, migration, UI, security and documentation work.
+Issue #46 left the [Identity guide](identity.md), [Identity service](../backend/internal/identity/application/service.go), [cookie handler](../backend/internal/identity/interfaces/http/handler.go) and [Redis store](../backend/internal/identity/infrastructure/redis/session_store.go) were unchanged by Issue #46. Issue #65 Stage 1 now adds optional Go login initiation only; see [its configuration and transaction contract](identity.md#oidc-stage-1-login-initiation-issue-65). The callback, token verifier, database binding and frontend login remain unimplemented. #66–#70 retain their separate account-linking, migration, UI, security and documentation work.
 
 ## Stop, restart and reset
 

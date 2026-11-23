@@ -106,3 +106,52 @@ python3 backend/tests/integration/test_schema.py
 ```
 
 The Identity integration runner starts isolated PostgreSQL and Redis containers, applies all existing migrations, and tests the HTTP routes and persistence. The plain Go test command runs the unit tests and skips the service-backed test unless its test connection variables are present.
+
+## OIDC Stage 1: login initiation (Issue #65)
+
+The optional `GET /api/v1/auth/oidc/login` endpoint now initiates authentication against the [local Keycloak demo](sso-demo.md). **Only initiation is implemented:** no callback, code exchange, token validation, account linking/creation or application-session creation occurs. Existing password routes, activation, verification, faculty checks and Redis application sessions remain unchanged. Synthetic Keycloak identity is never evidence of enrollment or a source of Tutti privileges.
+
+Start the Keycloak provider as documented, load the existing API/database/Redis environment, then export the following into the **Go API shell**:
+
+```sh
+export PUBLIC_ORIGIN=http://localhost:8080
+export OIDC_ENABLED=true
+export OIDC_ISSUER_URL=http://localhost:8180/realms/tutti-demo
+export OIDC_CLIENT_ID=tutti-backend
+export OIDC_REDIRECT_URL=http://localhost:8080/api/v1/auth/oidc/callback
+export OIDC_TRANSACTION_TTL=5m
+(cd backend && go run ./cmd/api)
+```
+
+PowerShell uses `$env:OIDC_ENABLED = 'true'` and the corresponding `$env:NAME = 'value'` assignments. Compose's `.env.sso` configures Keycloak; it does not automatically export these Go variables. Stage 1 does not consume the confidential client secret because it never calls the token endpoint. Keep that secret private for Stage 2.
+
+`OIDC_ENABLED` defaults to false, leaving the new route unregistered (404). With it enabled, issuer/client/callback configuration is required. TTL defaults to five minutes and must be whole seconds between one and ten minutes. Invalid settings fail startup. The callback must exactly equal `PUBLIC_ORIGIN + /api/v1/auth/oidc/callback`; no caller-controlled return URL is accepted. HTTP is permitted only for literal loopback/localhost development URLs; an HTTPS app requires an HTTPS issuer. Keep browser, host Go process and issuer on the same hostname contract from the demo guide. Normal bridged Go containers cannot use host `localhost` unchanged.
+
+The provider adapter uses `coreos/go-oidc` discovery with exact issuer checking, rejects discovery redirects, and requires advertised Authorization Code and S256 support. The discovered authorization endpoint must be a query-free URL on the configured issuer's origin, an intentional restriction compatible with this Keycloak deployment. It validates discovery at startup and refreshes it on each initiation using a three-second HTTP timeout. An unavailable/invalid provider prevents initiation; no issuer-check bypass or fallback to an untrusted endpoint is used. A failure of Redis also returns generic `503` without a new cookie or redirect. Enabling OIDC makes successful discovery a startup dependency; disabling it preserves legacy startup behavior.
+
+On successful initiation the endpoint returns `302` to the discovered authorization endpoint, containing `client_id`, fixed `redirect_uri`, `response_type=code`, `scope=openid profile email`, random `state`, random `nonce`, `code_challenge` and `code_challenge_method=S256`. It never returns a PKCE verifier or client secret. `golang.org/x/oauth2` implements PKCE generation/challenge and authorization URL encoding. Library versions are pinned to versions compatible with the existing Go 1.24 module; no toolchain upgrade or ID-token validation is included.
+
+### Browser binding and short-lived storage
+
+- **State:** 32 cryptographically random bytes, encoded base64url. Correlates a future response to this attempt; Redis keys use only its SHA-256 digest: `tutti:identity:oidc:<digest>`.
+- **PKCE:** a fresh library-generated verifier remains only server-side in Redis; its S256 challenge travels to Keycloak. Stage 2 must supply the verifier during code exchange.
+- **Nonce:** an independent 32-byte random value, stored with the transaction and sent to the provider. Stage 2 must validate the ID token's nonce. A nonce necessarily appears in the protocol authorization URL; it is never written to application logs. Proxies/observability must also redact auth/callback query strings and avoid recording redirect headers.
+- **Browser binding:** another independent 32-byte random value is sent only in an HttpOnly, host-only, SameSite=Lax cookie, `tutti_oidc_tx` for loopback HTTP or `__Host-tutti_oidc_tx` for HTTPS. It has path `/`, lifetime matching the transaction, and Secure on HTTPS. Redis stores only its SHA-256 digest, not the raw cookie.
+
+Records contain the binding digest, verifier, nonce and absolute expiry. Redis `SET NX` prevents collisions/overwrite and sets an actual TTL. They use a separate namespace from `tutti:identity:session:*` and contain no authenticated user or roles. Redis is trusted secret storage: keep it private, restrict administrative access and use the existing `rediss://` configuration when transport encryption is needed. These values are not encrypted independently inside Redis; cookie binding/state are hashed, while the verifier and nonce must remain recoverable for the future exchange/validation. No state, cookie, verifier, nonce, provider response body or client secret is logged by this implementation.
+
+An internal transaction-store `Consume(state, browserBinding)` primitive atomically compares the binding digest and deletes a matching record using Redis Lua. Missing, expired, malformed and already-consumed states fail closed; a wrong browser cannot consume another attempt. Explicit stored expiry is checked as well. **This is tested storage support, not a callback:** Stage 2 must validate callback input, require this cookie and call Consume exactly once before exchanging a code. Merely reading a Redis record in a future callback would not provide replay protection.
+
+Each new attempt replaces the one binding cookie, making earlier attempts in that browser unusable; unconsumed records expire automatically. This deliberately supports one outstanding attempt per browser instead of unbounded cookies. SameSite=Lax supports the planned top-level GET callback; no form-post callback is implemented. Loopback HTTP cookies lack Secure by necessity and are for synthetic development only. Cross-origin initiations carrying an explicit foreign `Origin`, or browser `Sec-Fetch-Site: cross-site`, are rejected. Ordinary address-bar/same-origin navigation without Origin is allowed. Query parameters (including return URLs) are rejected with 400; HEAD does not create transactions. Responses use `Cache-Control: no-store` and `Referrer-Policy: no-referrer`. Add the broader authentication abuse controls under #38; Stage 1 does not introduce a separate generic rate limiter.
+
+### Verification and Stage 2 handoff
+
+Tests include mock discovery/authorization metadata, issuer mismatch, unsafe endpoints, absent S256/code support, provider outage, random-value independence, matching PKCE/nonce, cookie attributes, forbidden origins/query redirects, safe errors/log redaction and legacy-route regression checks. The existing service-backed runner also verifies real Redis TTL expiration, wrong-browser denial, atomic replay prevention under eight concurrent consumers, and the HTTP initiation→mock discovery→Redis correlation path. The callback remains 404 throughout.
+
+```sh
+(cd backend && go test -race ./...)
+(cd backend && go vet ./... && go build ./...)
+bash backend/tests/integration/test_identity.sh -race
+```
+
+Stage 2 still owns callback parsing/error handling, single-use consumption and cookie clearing, code exchange with secret/verifier, ID-token validation (signature, issuer, audience, expiry and nonce), safe stable-identity binding and separately authorized account/session work. Do not enable user creation, role elevation, email-based linking or legacy-password retirement implicitly. Issue #65 as a whole is not complete from initiation alone.
