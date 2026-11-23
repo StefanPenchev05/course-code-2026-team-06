@@ -1,5 +1,12 @@
 # Tutti PostgreSQL setup
 
+For operator-only calendar creation and read-only Scheduling/Coordination dependency
+reports, see [semester maintenance](../semester-maintenance.md). Issue #50 adds no
+migration. Creation serializes duplicate checks and INSERT with a short calendar-table
+lock; previews use repeatable-read, read-only transactions. Existing semester rows,
+foreign keys, reservation triggers and history are preserved. The guide includes
+Windows PowerShell commands and disposable Docker verification.
+
 > **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](../requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
 
 
