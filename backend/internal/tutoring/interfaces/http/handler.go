@@ -1,6 +1,7 @@
 package tutoringhttp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -142,6 +143,11 @@ func writePage[T any](w http.ResponseWriter, p domain.Page, rows []T) {
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
+	// A disconnected client's cancelled operation is not a server failure.
+	// Keep unrelated failures visible even if cancellation happened concurrently.
+	if errors.Is(r.Context().Err(), context.Canceled) && errors.Is(err, context.Canceled) {
+		return
+	}
 	code, message := 500, "internal server error"
 	switch {
 	case errors.Is(err, errMalformed):
