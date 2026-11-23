@@ -32,6 +32,7 @@ import (
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/security"
 	identityhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/interfaces/http"
 	scheduling "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/application"
+	schedulingdomain "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/domain"
 	schedulingpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/infrastructure/postgres"
 	schedulinghttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/interfaces/http"
 	tutoring "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/application"
@@ -167,6 +168,38 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		Sessions: schedulingpg.AttendanceSessions,
 	})
 	coordhttp.New(coordination.NewAttendance(attendanceRepo, time.Now), logger).RegisterRoutes(mux, identity)
+	issueRepo := coordpg.NewIssues(pool, coordpg.IssueDependencies{
+		LockStudent:            postgres.LockStudent,
+		LockCoordinatorFaculty: postgres.LockCoordinatorFaculty,
+		HomeFaculty: func(ctx context.Context, tx pgx.Tx, program string) (string, error) {
+			return catalog.New(catalogpostgres.InTransaction(tx)).GetProgramFaculty(ctx, program)
+		},
+		LockParticipantSession: func(ctx context.Context, tx pgx.Tx, id, actor string) (schedulingdomain.Session, error) {
+			return schedulingpg.AttendanceSessions(tx).LockParticipantSession(ctx, id, actor)
+		},
+	})
+	coordhttp.NewIssues(coordination.NewIssues(issueRepo), logger).RegisterRoutes(mux, identity)
+	monitoringRepo := coordpg.NewMonitoring(pool, coordpg.MonitoringDependencies{
+		Faculty: postgres.ReadCoordinatorFaculty, Tutors: tutoringpostgres.Monitoring,
+		Activity: feedbackpg.Monitoring, Scheduling: schedulingpg.Monitoring,
+	})
+	coordhttp.NewMonitoring(coordination.NewMonitoring(monitoringRepo), logger).RegisterRoutes(mux, identity)
+	policyRepo := coordpg.NewPolicyCancellation(pool, coordpg.PolicyCancellationDependencies{
+		LockCoordinatorFaculty: postgres.LockCoordinatorFaculty, Sessions: schedulingpg.PolicySessions,
+	})
+	coordhttp.NewPolicyCancellation(coordination.NewPolicyCancellation(policyRepo, time.Now), logger).RegisterRoutes(mux, identity)
+	suspensionRepo := coordpg.NewSuspension(pool, coordpg.SuspensionDependencies{
+		Accounts: postgres.SuspensionAccounts,
+		Catalog:  func(tx pgx.Tx) catalog.AcademicCatalog { return catalog.New(catalogpostgres.InTransaction(tx)) },
+		Sessions: schedulingpg.SuspensionSessions,
+	})
+	coordhttp.NewSuspension(coordination.NewSuspension(suspensionRepo, time.Now), logger).RegisterRoutes(mux, identity)
+	coordhttp.NewAudit(coordination.NewAudit(coordpg.NewAudit(pool, coordpg.AuditDependencies{
+		Faculty: postgres.ReadCoordinatorFaculty, Accounts: postgres.SuspensionHistory,
+	})), logger).RegisterRoutes(mux, identity)
+	coordhttp.NewFlaggedUsers(coordination.NewFlaggedUsers(coordpg.NewFlaggedUsers(pool, coordpg.FlaggedUsersDependencies{
+		Faculty: postgres.ReadCoordinatorFaculty, Accounts: postgres.AccountStates,
+	})), logger).RegisterRoutes(mux, identity)
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", "127.0.0.1:8080"),
 		Handler:           http.TimeoutHandler(mux, 10*time.Second, `{"error":"request timed out"}`),

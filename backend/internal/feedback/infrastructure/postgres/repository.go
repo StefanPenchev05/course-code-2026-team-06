@@ -111,11 +111,8 @@ func statistics(ctx context.Context, db reader, tutors []string, faculty *string
 	if len(tutors) == 0 {
 		return out, nil
 	}
-	rows, err := db.Query(ctx, `
-		SELECT s.tutor_id::text,count(*),sum(s.duration_minutes)::float8/60,
-		       round(avg(f.rating),2)::float8,count(f.rating)
-		FROM tutoring_sessions s LEFT JOIN feedback f ON f.session_id=s.id
-		WHERE s.status='COMPLETED' AND s.tutor_id=ANY($1::text[]::uuid[])
+	rows, err := db.Query(ctx, `SELECT s.tutor_id::text,`+activityColumns+activityFrom+`
+		AND s.tutor_id=ANY($1::text[]::uuid[])
 		  AND ($2::uuid IS NULL OR s.faculty_id=$2)
 		GROUP BY s.tutor_id`, tutors, faculty)
 	if err != nil {

@@ -72,6 +72,10 @@ See [trusted semester maintenance](docs/semester-maintenance.md) for verified ca
 
 See the [worker guide](docs/workers.md) for expiration polling, SMTP delivery, retries, and Compose setup.
 
+## Coordination API
+
+See the [Coordination guide](docs/coordination.md) for issue reporting/resolution, tutor monitoring, policy cancellation, home-faculty suspension/reinstatement (Issue #25, FR19 / UC14), flagged-user review (Issue #48, FR18 / UC12 / UC16), preserved audit history, attendance decisions, and Windows PowerShell test commands.
+
 ## Requirements baseline
 
 See the [current requirements](docs/1.3-1.4_user-story_mapping--requirement_analysis.md), [traceability matrix](docs/requirements-traceability.md) and [decision log](docs/requirements-decisions.md) for approved scope, implementation evidence and outstanding decisions. Uni.lu-only SSO is mandatory; current local-password Identity APIs are legacy pending migration.

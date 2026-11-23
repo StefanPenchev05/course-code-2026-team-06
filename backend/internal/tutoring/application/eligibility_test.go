@@ -51,7 +51,10 @@ func (f *eligibilityFake) ActiveOfferings(_ context.Context, id string) ([]domai
 	}
 	return out, f.listErr
 }
-func (f *eligibilityFake) Deactivate(_ context.Context, id string) error {
+func (f *eligibilityFake) Deactivate(_ context.Context, id, program, faculty string) error {
+	if program != programID || faculty != facultyID {
+		return errors.New("incorrect withdrawal audit scope")
+	}
 	if id == f.deactivateFailure {
 		return errEligibilityFixture
 	}

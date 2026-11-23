@@ -1,5 +1,10 @@
 # Requirements decisions and provenance
 
+Issue #26 documents the [actual retention and audit-preservation behavior](audit-history.md#retention-and-privacy-inventory).
+It does not resolve U04 or approve the provisional periods below. No cleanup,
+archival, export or erasure process is activated; future privileged retention
+procedures still require university/DPO approval and their own audit controls.
+
 Baseline reviewed on 2026-11-19 against `main` at `c7ca561` for [Issue #14](https://github.com/StefanPenchev05/course-code-2026-team-06/issues/14). This is a documentation revision, not a runtime release or a record of university legal approval.
 
 The [original Deliverable 1](Deliverable_1.pdf), original diagrams and rationale are historical evidence. The [revised requirements](1.3-1.4_user-story_mapping--requirement_analysis.md) define the approved target; the [traceability matrix](requirements-traceability.md) separates target acceptance from inspected implementation. Current code establishes actual behavior, not permission to change a business rule. Module guides describe current APIs. Conflicting historical statements are superseded only by the decisions below. Unresolved items are not silently treated as approved rules.

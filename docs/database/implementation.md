@@ -10,7 +10,27 @@ Windows PowerShell commands and disposable Docker verification.
 > **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](../requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
 
 
-The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
+The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Migration 11 adds issue history; migrations 12–14 support issue resolution, cancellation-origin audit and suspension administration without adding tables. Migration 15 adds offering-withdrawal evidence, bringing the total to 33, and protects account/disciplinary audit records. Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
+
+Migration 15 leaves legacy actor/faculty/cause metadata unknown, guards permanent
+evidence against UPDATE/DELETE/TRUNCATE, and freezes original submissions/final
+decisions. Apply it before the new writers and drain older writers during rollout.
+Its down script refuses to remove new evidence; it is not a retention mechanism.
+See [audit preservation](../audit-history.md) for the complete guarantees, category
+retention inventory, restricted-role tests and Windows verification commands.
+
+Issue #48's [flag review reader](../coordination.md#home-faculty-flagged-user-review-fr18--uc12--uc16--nfr2-issue-48)
+needs no new migration. It scopes `user_semester_flags` by stored `faculty_id`,
+pages by `flagged_at DESC,id DESC`, then counts `user_violations` only for selected
+user/semester pairs. Existing faculty/time and user/semester indexes support these
+reads; the unique `(user_id,semester_id)` flag and `(user_id,session_id)` violation
+constraints prevent duplicate flags/incidents. Counts include authentic legacy
+rows and all later qualifying incidents, independent of later faculty changes.
+Identity reads `users.is_suspended` for the bounded authorized IDs via a published
+batch port in the same read-only repeatable-read transaction as current coordinator
+authority and flag/count queries. No mutable counter, lock or outbox write is added.
+Separate offset pages can observe different snapshots. Persistent version-14/15
+rollout remains a developer-reviewed action; tests use isolated databases only.
 
 | Migration | Domain and key constraints |
 | --- | --- |
@@ -24,6 +44,10 @@ The first eight paired [migrations](../../backend/migrations/) create all 31 tab
 | 8 | Sponsors and aggregate report snapshots. Reporting-period, count, and feedback-average checks. |
 | 9 | Email outbox delivery leases, attempts, retry schedule, failure category, and a pending-delivery index. |
 | 10 | Outbox notification types for attendance reports and decisions. |
+| 11 | Append-only issue status history, one creation event per report, and bounded new issue descriptions. |
+| 12 | Bounded resolution notes and description validation on inserts/actual changes, allowing resolution to preserve legacy evidence. |
+| 13 | Explicit participant/policy cancellation origin in session history, preserving unknown legacy origins and guarding against rollback evidence loss. |
+| 14 | Bounded suspension reasons, append-only existing account history, account notification types, and suspension cancellation origin/decision link. |
 
 ## Local commands
 
@@ -58,7 +82,145 @@ The integration runner requires Docker, Python 3, `migrate`, and PostgreSQL clie
 python3 backend/tests/integration/test_schema.py
 ```
 
-The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It also verifies all ten rollbacks and replays the migrations from empty.
+The runner checks the full table inventory, constraints, and SQLSTATEs. It holds one booking open in a transaction and waits for the competing connection to block, then verifies that only one booking and its two blocks commit. It verifies legacy issue and suspension evidence, independent migrations 12–14 rollback/reapplication, cancellation-origin constraints and retention guards, all fourteen rollbacks on disposable fixtures, and replays the migrations from empty. On Windows, `.\backend\tests\integration\test_docker.ps1` runs these checks using the existing Dockerfile and disposable containers, without native database tooling or changes to Compose services.
+
+## Suspension administration transaction contract
+
+Issue #25 / FR19 / UC14 reuses `users.is_suspended`, the last suspension metadata,
+and `user_suspension_history`. Identity locks actor/target accounts in UUID order
+with `FOR NO KEY UPDATE`; the second lock uses `NOWAIT` to avoid waiting cycles
+with existing coordinator workflows. Coordination retries lock contention only
+after the whole transaction has rolled back, up to ten attempts. It then locks
+current coordinator authority and target student membership; Catalog locks the
+program to derive home faculty. No session faculty grants account authority.
+
+Account UPDATE is conditional on the previous suspension state and a non-closed
+account. It retains last suspension metadata on reinstatement and appends the
+new decision/reason instead of rewriting old history. One account notice is keyed
+by that decision UUID. For suspension, Scheduling locks all future active sessions
+in either role (`starts_at >=` the shared server decision time), using keyset pages
+of 100 in UUID order. Existing status triggers release both reservations. Every
+session update/history/two-recipient outbox write shares the account transaction;
+timeouts and failures roll back all pages. No disciplinary writes occur.
+
+Issue #49 independently rechecks this existing contract without a new migration.
+Its [source/test evidence matrix](../coordination.md#independent-atomicity-verification-issue-49)
+covers 105-session failure positions, rollback after 100 completed updates,
+database and request cancellation, exact PostgreSQL time boundaries and both
+forced booking/expiry serialization orders. The tests strengthen assertions for
+both recipient notices and reservation release on every linked cancellation.
+The account lock prevents new authorized bookings from appearing behind the UUID
+cursor. Expiry uses `SKIP LOCKED`; suspension waits and rechecks locked rows and
+continues to exhaustion, so a successful suspension leaves no eligible active
+session. An expiry batch may defer locked requests to its next poll.
+
+[Migration 14](../../backend/migrations/000014_suspension_administration.up.sql)
+adds `USER_SUSPENDED`/`USER_REINSTATED` to the existing notification enum. The worker
+already delivers stored subjects/bodies without a per-type handler. It also permits
+origin `SUSPENSION`, requiring the nullable new `session_status_history.suspension_history_id`
+foreign key exactly for that origin. Existing events retain null links. The account
+history remains the private reason store; shared sessions use a generic reason.
+Application code supplies matching actor/time/target in the linked events.
+
+The migration adds Unicode-aware, 1–2000 UTF-8 byte reason checks using `NOT VALID`
+to preserve existing oversized legacy evidence. New decisions and suspended
+account writes must meet the bounds. Account history rejects UPDATE, DELETE and
+TRUNCATE. It adds no fabricated history, counter table, reservation mechanism or
+automatic retention deletion. Existing account-history target/faculty/coordinator
+foreign keys are preserved; historical composite coordinator references can block
+assignment removal/reassignment. Changing that historical model is separate work.
+
+Apply migration 14 **before updated API and worker binaries**; their shared session
+event writer references the new column. Migration 13-compatible binaries remain
+schema-compatible but do not implement this administration workflow. Existing
+student/start, tutor/start and history indexes support the lookups; no new index is
+added without workload evidence. Memory is paged, while transaction size and locks
+grow with the affected sessions; the existing API deadline bounds execution.
+
+The [down migration](../../backend/migrations/000014_suspension_administration.down.sql)
+refuses rollback while suspension cancellation links/origins or account notices
+remain. It never deletes evidence to force rollback. Otherwise it removes only the
+new column/checks/guards and enum values, preserving account/history rows. Stop
+updated writers and restore compatible binaries before any intentional rollback;
+removing the migration also removes its new append-only protection. Older down
+migrations can be destructive and belong only in disposable tests. See
+[PowerShell commands](../coordination.md#locking-and-verification); tests never
+apply this migration to the developer's regular database.
+
+## Policy cancellation transaction contract
+
+Issue #24 / FR19 / UC04 uses Coordination's authenticated coordinator service and
+Scheduling's injected transaction-bound cancellation adapter. Identity locks the
+active coordinator assignment/account before Scheduling locks the session by ID
+and immutable faculty. Only `REQUESTED`/`ACCEPTED` can become `CANCELLED`; no new
+timing cutoff is imposed. Participant eligibility is irrelevant to this authority,
+and no participant account locks or discipline writes follow the session lock.
+Existing lifecycle writers serialize on the same row.
+
+One transaction persists cancellation actor/reason/time with a false late flag,
+releases both participant blocks through existing triggers, appends history, and
+queues `SESSION_CANCELLED` for both participants. History/outbox failure restores
+the original session and both reservations. No trigger, reservation table, state,
+notification enum or disciplinary rule is duplicated. Existing faculty/session
+indexes and the session primary key support the scoped lookup.
+
+[Migration 13](../../backend/migrations/000013_policy_cancellation.up.sql) adds the
+nullable `session_status_history.cancellation_origin` text column. Non-null values
+must be `PARTICIPANT` or `COORDINATOR_POLICY`, on a `USER` transition from
+`REQUESTED`/`ACCEPTED` to `CANCELLED` with a nonblank reason of 1–2000 UTF-8 bytes.
+Existing history is untouched, including legacy reasons outside today's bounds;
+null means unknown/not applicable. Do not infer historical capacity from current
+coordinator assignments. New application cancellations set their explicit origin;
+the application supplies trusted actor, authority and transactional consistency.
+This adds no general session-history mutation API or retention job.
+
+Apply migration 13 before updated API **and worker** binaries: their shared event
+writer now includes the column for all session events. An older binary remains
+schema-compatible after the additive upgrade, but cannot record explicit origins;
+use the updated API for policy actions. The [down migration](../../backend/migrations/000013_policy_cancellation.down.sql)
+takes an exclusive history-table lock and refuses to drop the column if any origin
+has been recorded, including participant origins. With no such records, rollback
+drops only the new column/check and preserves prior history. Stop updated writers
+and restore compatible binaries before an intentional rollback. Never delete
+history to bypass the retention guard. Migration testing does not alter the
+developer's database; exact PowerShell commands are in [Coordination](../coordination.md#windows-verification-and-migration-order).
+
+## Issue creation transaction contract
+
+The [Coordination issue service](../coordination.md#general-issue-reporting-fr10--uc06) implements FR10 / UC06 creation. The same transaction locks and rechecks the reporter's current Identity state and program, obtains the current Catalog faculty for an unlinked report or the authorized Scheduling participant session for a linked report, and inserts `issue_reports` plus `issue_status_history`. Linked issues use the session's immutable tutor faculty, enforced again by the existing `(session_id, faculty_id)` foreign key. The existing `(faculty_id, status, created_at)` index supports future scoped inbox queries.
+
+New reports begin `OPEN` and write a `NULL` → `OPEN` history event with actor kind `USER`, the reporter ID, and the report's database-generated creation timestamp. PostgreSQL enforces history references, actor metadata, actual status changes, and at most one creation event per report. Triggers reject history UPDATE, DELETE, and TRUNCATE. The parent FK does not cascade; historical reports cannot be deleted while their history remains. The application is responsible for authenticating the actor, deriving faculty/participation, and inserting both rows atomically; raw administrative SQL is not an authenticated workflow.
+
+Migration 11 does not fabricate audit entries for older reports. Its 1–2000 UTF-8 byte/non-whitespace description constraint uses `NOT VALID`. Because PostgreSQL still checks new versions of existing rows, that constraint would reject resolution of oversized legacy evidence. Migration 12 replaces it with an insert/update-of-description trigger that validates new or actually changed descriptions. Unchanged original evidence remains intact. New descriptions retain the same bounds, and no automated retention deletion is added.
+
+Deploy migration 11 before the new API binary. Rolling back that migration deliberately drops the history table and removes the new constraint while retaining issue reports. Archive any required history before an intentional rollback; never run destructive migration tests on the developer's regular or shared database. The test runner exercises rollback only on its disposable database.
+
+## Issue inbox and resolution transaction contract
+
+Issue #22 / FR17 / UC13 extends the same Coordination service. Reads join the active coordinator's current assignment against `issue_reports.faculty_id`; they never infer report ownership from a student's current program. The existing faculty/status/creation-time index supports bounded `OPEN` or `RESOLVED` inbox queries ordered by creation time and ID.
+
+Resolution locks the current Identity coordinator assignment/account (`FOR SHARE`) before the scoped report (`FOR UPDATE`). It permits only `OPEN` → `RESOLVED`, updates resolver/note/time with a conditional `WHERE status='OPEN'`, and appends the transition with matching actor/time. Both statements share one transaction. The retained report contains the note referenced by the history record. A failed history insert rolls back the update; concurrent or duplicate resolution returns conflict. Creation history and original evidence remain untouched. Legacy reports need no fabricated creation event to receive a new authentic resolution event.
+
+Migration 12 adds a `NOT VALID` check requiring a non-whitespace resolution note of at most 2000 UTF-8 bytes for newly written resolved rows. Existing timestamp, resolver and composite faculty foreign keys remain in force. The append-only history triggers remain unchanged. General issue resolution writes no session, attendance, violation, flag, or notification data.
+
+Apply migration 12 before deploying the inbox/resolution API. Its down migration drops only the new validation machinery and reinstates migration 11's `NOT VALID` description check; it deletes no reports or history. After rollback, oversized legacy descriptions are readable but cannot be updated until migration 12 is reapplied. Older down migrations remain destructive. Existing composite reviewer foreign keys also constrain coordinator reassignment/deletion after review; changing that historical model is separate work.
+
+## Monitoring read contract (Issue #23 / FR16 / UC12)
+
+Coordination starts a `REPEATABLE READ READ ONLY` transaction and resolves active
+coordinator authority through Identity in that snapshot. Explicit transaction-bound
+Tutoring, Scheduling and Feedback adapters reuse it for every query in the response.
+Current tutor membership follows `students.program_id` / `programs.faculty_id`;
+session data follows immutable `tutoring_sessions.faculty_id`. Permission changes
+committed before the snapshot apply immediately; changes after it apply next time.
+
+Counts/hours use current `COMPLETED` sessions left-joined to the unique feedback row,
+with no offering/availability join multiplying the population. Faculty ratings use
+the underlying ratings rather than averages of tutor averages. Profile queries use
+`EXISTS` for offering eligibility. Tutor lists batch statistics for at most 101 IDs
+(the requested page plus a lookahead). Schedule queries require an interval of at
+most 31 days and bounded pagination. Existing indexes suffice; no migration or
+persisted counter is introduced. See [API and population definitions](../coordination.md).
 
 ## Booking transaction contract
 

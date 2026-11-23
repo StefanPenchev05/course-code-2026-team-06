@@ -38,6 +38,13 @@ The module uses the existing session and feedback indexes and requires no schema
 
 ## Verification
 
+Issue #23's [coordinator monitoring APIs](coordination.md#tutor-monitoring-and-faculty-statistics-fr16--uc12-issue-23)
+reuse these same aggregate expressions through a transaction-bound query port.
+Faculty averages are calculated over individual qualifying feedback rows, not tutor
+averages. Tutor list/detail, faculty counts and activity share the caller's read-only
+snapshot. The existing private-comment endpoint and its response contract remain
+unchanged; new monitoring responses never include comments.
+
 Run from the repository root:
 
 ```sh

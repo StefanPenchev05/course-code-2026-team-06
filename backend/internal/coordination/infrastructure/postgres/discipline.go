@@ -15,9 +15,10 @@ func Discipline(tx pgx.Tx) application.Discipline { return discipline{tx} }
 
 func (d discipline) RecordLateCancellation(ctx context.Context, v application.LateCancellation) error {
 	_, err := d.tx.Exec(ctx, `
-		INSERT INTO user_violations (user_id,semester_id,session_id,kind,occurred_at)
-		VALUES ($1,$2,$3,'LATE_CANCELLATION',$4)
-		ON CONFLICT (user_id,session_id) DO NOTHING`, v.UserID, v.SemesterID, v.SessionID, v.OccurredAt)
+		INSERT INTO user_violations (user_id,semester_id,session_id,kind,occurred_at,
+		    recorded_at,actor_kind,recorded_by_user_id,home_faculty_id)
+		VALUES ($1,$2,$3,'LATE_CANCELLATION',$4,$4,'SYSTEM',NULL,$5)
+		ON CONFLICT (user_id,session_id) DO NOTHING`, v.UserID, v.SemesterID, v.SessionID, v.OccurredAt, v.HomeFacultyID)
 	if err != nil {
 		return err
 	}
@@ -29,8 +30,9 @@ func (d discipline) recordNoShow(ctx context.Context, user, semester, session, h
 	// report with no matching disciplinary record.
 	_, err := d.tx.Exec(ctx, `
 		INSERT INTO user_violations (user_id,semester_id,session_id,kind,occurred_at,
-		                            attendance_report_id,confirmed_by_coordinator_id)
-		VALUES ($1,$2,$3,'NO_SHOW',$4,$5,$6)`, user, semester, session, occurred, report, reviewer)
+		                            attendance_report_id,confirmed_by_coordinator_id,
+		                            recorded_at,actor_kind,recorded_by_user_id,home_faculty_id)
+		VALUES ($1,$2,$3,'NO_SHOW',$4,$5,$6,$7,'USER',$6,$8)`, user, semester, session, occurred, report, reviewer, decided, home)
 	if err != nil {
 		return err
 	}
@@ -39,10 +41,14 @@ func (d discipline) recordNoShow(ctx context.Context, user, semester, session, h
 
 func (d discipline) flagAtThreshold(ctx context.Context, user, semester, home string, at time.Time) error {
 	_, err := d.tx.Exec(ctx, `
-		WITH flagged AS (
-			INSERT INTO user_semester_flags (user_id,semester_id,faculty_id,flagged_at)
-			SELECT $1,$2,$3,$4
-			WHERE (SELECT count(*) FROM user_violations WHERE user_id=$1 AND semester_id=$2)>=2
+		WITH basis AS (
+			SELECT array_agg(id ORDER BY recorded_at,id) AS ids FROM (
+				SELECT id,recorded_at FROM user_violations WHERE user_id=$1 AND semester_id=$2
+				ORDER BY recorded_at,id LIMIT 2
+			) v
+		), flagged AS (
+			INSERT INTO user_semester_flags (user_id,semester_id,faculty_id,flagged_at,actor_kind,first_violation_id,second_violation_id)
+			SELECT $1,$2,$3,$4,'SYSTEM',ids[1],ids[2] FROM basis WHERE cardinality(ids)=2
 			ON CONFLICT (user_id,semester_id) DO NOTHING
 			RETURNING id,faculty_id
 		)
