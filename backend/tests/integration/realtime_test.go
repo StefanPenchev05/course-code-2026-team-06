@@ -32,7 +32,7 @@ type realtimeReader struct {
 }
 
 func realtimeRead(c *websocket.Conn) realtimeReader {
-	s := realtimeReader{make(chan events.Event, 16), make(chan struct{})}
+	s := realtimeReader{make(chan events.Event, 128), make(chan struct{})}
 	go func() {
 		defer close(s.done)
 		for {

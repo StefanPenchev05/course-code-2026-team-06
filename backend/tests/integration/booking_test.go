@@ -44,8 +44,8 @@ type bookingFixture struct {
 	clock   atomic.Int64
 	start   time.Time
 	cookie  map[int]*http.Cookie
-	auth *identityhttp.Handler
-	redis *redis.Client
+	auth    *identityhttp.Handler
+	redis   *redis.Client
 }
 
 const (
