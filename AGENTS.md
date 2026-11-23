@@ -337,6 +337,607 @@ Use the current GitHub issue/milestone as the task scope. As of the inspected `m
 
 Prefer one cohesive vertical slice at a time: define its contract, use the existing owning module, implement domain/application/infrastructure/HTTP integration as needed, test with real dependencies, and hand off clearly. Do not introduce a microservice, new database, new ORM, generic queue, or large refactor without an explicit requirement and evidence that the existing modular monolith cannot support the task.
 
+# Frontend Architecture and Implementation Rules
+
+## 1. Technology Stack
+
+The Tutti frontend uses:
+
+- **React** for UI components.
+- **TypeScript** for type safety.
+- **React Router** for navigation, if already used by the project.
+- **CSS and the existing styling system** for presentation.
+- **The existing HTTP client** for communication with the Go backend.
+- **The existing testing tools** for unit, integration, and end-to-end testing.
+
+Agents MUST inspect `frontend/package.json` and the existing frontend implementation before introducing dependencies or making architectural changes.
+
+Do not install alternative routing, state-management, styling, form, or HTTP libraries when the existing project already provides a suitable solution.
+
+## 2. Feature-Based Architecture
+
+Organize frontend code by business feature rather than grouping all components, hooks, or API calls into global directories.
+
+Follow this architecture where compatible with the existing repository:
+
+```text
+frontend/
+├── public/
+├── src/
+│   ├── app/
+│   │   ├── App.tsx
+│   │   ├── router.tsx
+│   │   └── providers.tsx
+│   │
+│   ├── pages/
+│   │   ├── LoginPage.tsx
+│   │   ├── StudentDashboardPage.tsx
+│   │   ├── TutorDashboardPage.tsx
+│   │   └── CoordinatorDashboardPage.tsx
+│   │
+│   ├── features/
+│   │   ├── auth/
+│   │   ├── courses/
+│   │   ├── tutors/
+│   │   ├── availability/
+│   │   ├── bookings/
+│   │   ├── feedback/
+│   │   ├── issues/
+│   │   └── coordination/
+│   │       ├── components/
+│   │       ├── hooks/
+│   │       ├── api/
+│   │       └── types/
+│   │
+│   ├── shared/
+│   │   ├── api/
+│   │   ├── components/
+│   │   ├── hooks/
+│   │   ├── types/
+│   │   └── utils/
+│   │
+│   ├── styles/
+│   └── main.tsx
+│
+├── tests/
+│   └── e2e/
+├── package.json
+└── tsconfig.json
+```
+
+This structure is a target organization, not permission to recreate existing directories or rewrite working code.
+
+Agents MUST reuse the current structure and expand it incrementally.
+
+Do not create empty folders or placeholder files solely to match the example.
+
+## 3. Responsibilities of Each Layer
+
+### `app/` — Application Composition
+
+Contains application-level configuration:
+
+- Root React component.
+- Router configuration.
+- Global providers.
+- Authentication initialization.
+- Application-wide error boundaries.
+- Global application configuration.
+
+Do not implement feature-specific API requests or business workflows directly in `App.tsx`.
+
+### `pages/` — Route-Level Screens
+
+Pages assemble feature components into complete screens.
+
+Examples:
+
+- Student dashboard.
+- Tutor profile.
+- Session booking.
+- Coordinator monitoring.
+- Coordinator issue resolution.
+
+A page should mainly coordinate layout, navigation, and feature composition.
+
+Avoid placing complex API logic, validation, or business calculations directly inside page components.
+
+### `features/` — Business Features
+
+Each feature owns its UI behavior and its integration with the corresponding backend capabilities.
+
+Example:
+
+```text
+features/
+└── bookings/
+    ├── components/
+    │   ├── BookingForm.tsx
+    │   ├── BookingCard.tsx
+    │   └── BookingList.tsx
+    ├── hooks/
+    │   ├── useBookings.ts
+    │   └── useCreateBooking.ts
+    ├── api/
+    │   └── bookingsApi.ts
+    ├── types/
+    │   └── booking.ts
+    └── utils/
+        └── bookingDisplay.ts
+```
+
+Feature folders may contain their own tests.
+
+Create only the files genuinely needed by the implementation.
+
+### `shared/` — Reusable Technical and UI Infrastructure
+
+Contains code shared across multiple features:
+
+- HTTP client configuration.
+- Reusable buttons, dialogs, inputs, and loading indicators.
+- Generic hooks.
+- Date formatting.
+- Shared utility types.
+- Common error-handling helpers.
+
+Do not move business-specific components into `shared/` merely because they are used more than once within one feature.
+
+Do not create a global collection of unrelated feature-specific API calls.
+
+### `styles/` — Design System and Styling
+
+Contains existing global styles, design tokens, and shared theme definitions.
+
+Reuse established:
+
+- Colors.
+- Typography.
+- Spacing.
+- Breakpoints.
+- Form styling.
+- Accessibility conventions.
+- Responsive layout patterns.
+
+Do not introduce a second design system or mix unrelated styling frameworks.
+
+## 4. Frontend Dependency Rules
+
+Use the following conceptual dependency direction:
+
+```text
+app/
+  ↓
+pages/
+  ↓
+features/
+  ↓
+shared/
+```
+
+Dependencies should generally flow toward lower-level reusable code.
+
+Rules:
+
+1. `shared/` must not depend on individual business features.
+2. Feature components should not import route-level page components.
+3. Page components may compose multiple features.
+4. App-level code may configure and compose pages and providers.
+5. Avoid circular imports between features.
+6. Cross-feature behavior should use clearly defined public interfaces or application composition.
+7. Do not bypass established architecture to import internal implementation details from unrelated features.
+
+Do not create abstraction layers without a concrete need.
+
+## 5. Component Architecture
+
+Prefer small, focused components with clear responsibilities.
+
+Separate, where useful:
+
+- Presentational components.
+- Feature-specific hooks.
+- API request functions.
+- Input validation.
+- Type definitions.
+- Display formatting.
+
+Example:
+
+```tsx
+function BookingList() {
+  const { bookings, isLoading, error } = useBookings();
+
+  if (isLoading) {
+    return <LoadingState />;
+  }
+
+  if (error) {
+    return <ErrorState message="Unable to load bookings." />;
+  }
+
+  return (
+    <div>
+      {bookings.map((booking) => (
+        <BookingCard key={booking.id} booking={booking} />
+      ))}
+    </div>
+  );
+}
+```
+
+This is an architectural illustration, not an instruction to introduce specific hooks or components when equivalents already exist.
+
+Avoid:
+
+- Extremely large page components.
+- API calls scattered through unrelated UI components.
+- Duplicated form validation.
+- Multiple implementations of the same feature state.
+- Unnecessary global state.
+- Business calculations duplicated from the backend.
+
+## 6. Real Backend API Integration
+
+**The Go backend is the authoritative source of application data and business rules.**
+
+Before implementing frontend functionality:
+
+1. Locate the corresponding Go HTTP handler.
+2. Inspect the actual route registration.
+3. Inspect request and response DTOs.
+4. Read API documentation.
+5. Verify authentication requirements.
+6. Implement requests using the existing frontend API client.
+7. Match the real response structures.
+8. Test the workflow against the running Go backend.
+
+For example, coordinator functionality must use existing backend APIs such as:
+
+```text
+GET  /api/v1/coordinator/tutors
+GET  /api/v1/coordinator/statistics
+GET  /api/v1/coordinator/issues
+POST /api/v1/coordinator/issues/{id}/resolve
+POST /api/v1/coordinator/sessions/{id}/cancel
+POST /api/v1/coordinator/users/{id}/suspend
+POST /api/v1/coordinator/users/{id}/reinstate
+```
+
+Verify that endpoints exist in the current checkout before using them.
+
+Do not invent API endpoints or pretend unavailable functionality already exists.
+
+If a required backend capability is missing, report the gap and follow the task scope.
+
+## 7. API Client Architecture
+
+Centralize shared HTTP behavior in the existing client infrastructure.
+
+For example:
+
+```text
+shared/api/
+├── client.ts
+├── errors.ts
+└── types.ts
+```
+
+Keep feature-specific API calls close to their feature:
+
+```text
+features/
+└── coordination/
+    └── api/
+        ├── coordinatorIssuesApi.ts
+        ├── coordinatorMonitoringApi.ts
+        └── coordinatorAdministrationApi.ts
+```
+
+The shared client should handle common concerns such as:
+
+- API base URL.
+- Credentials and cookies.
+- Request serialization.
+- Consistent response parsing.
+- HTTP error normalization.
+- Network failures.
+- Request cancellation, where supported.
+
+Do not implement competing HTTP clients for different features without justification.
+
+Do not store authentication tokens in localStorage or sessionStorage unless the actual security architecture explicitly requires that design.
+
+The existing Tutti authentication mechanism uses session cookies.
+
+Follow its real cookie and same-origin requirements.
+
+## 8. Authentication and Authorization
+
+The frontend must integrate with the existing Identity backend.
+
+Frontend route guards and conditional rendering are for user experience, not security enforcement.
+
+The Go backend remains responsible for authorization.
+
+Requirements:
+
+- Derive displayed permissions from the authenticated backend session.
+- Handle authentication expiration.
+- Handle `401 Unauthorized`.
+- Handle `403 Forbidden`.
+- Handle inaccessible resources consistently.
+- Avoid displaying coordinator-only functionality to users lacking coordinator permissions.
+- Do not trust frontend role state as authoritative.
+- Do not bypass backend restrictions using mock users.
+- Do not implement a separate frontend authentication system.
+
+Do not implement a fake SSO provider or fabricate university identities.
+
+The project's approved SSO migration is a separate milestone.
+
+## 9. Server State and Client State
+
+Distinguish between:
+
+**Server state**
+
+Data owned by the backend:
+
+- Tutors.
+- Courses.
+- Availability.
+- Bookings.
+- Feedback.
+- Issue reports.
+- Coordinator statistics.
+- Suspension status.
+
+**Client state**
+
+Temporary frontend behavior:
+
+- Open dialogs.
+- Selected filters.
+- Form input.
+- Pagination controls.
+- Active tabs.
+- Local UI preferences.
+
+Use the project's existing server-state handling strategy.
+
+Do not add Redux, Zustand, TanStack Query, or another state library unless there is a demonstrated need and it fits the current architecture.
+
+Avoid duplicating backend state in unrelated React components.
+
+After successful mutations, refresh or invalidate the affected server data using the existing pattern.
+
+Never optimistically display a successful business transition when the backend rejected it.
+
+## 10. TypeScript and API Contracts
+
+Use explicit TypeScript types for API requests and responses.
+
+Avoid `any` where meaningful types can be defined.
+
+Types must reflect the actual Go DTOs and JSON responses.
+
+For example, where the backend uses:
+
+```json
+{
+  "data": {
+    "id": "uuid",
+    "status": "OPEN"
+  }
+}
+```
+
+Do not incorrectly type the response as if it returned the issue object directly.
+
+Preserve:
+
+- Optional and nullable fields.
+- Backend enum values.
+- Timestamp formats.
+- Pagination envelopes.
+- Error response structures.
+- Field naming conventions.
+
+Do not invent fields to simplify frontend rendering.
+
+If the repository maintains OpenAPI contracts or generated types, follow the existing generation workflow.
+
+## 11. Forms and Validation
+
+Forms should provide immediate, accessible feedback while delegating final validation to the backend.
+
+Use established form and validation conventions.
+
+Requirements:
+
+- Validate required fields for user experience.
+- Display backend validation errors.
+- Handle pending submissions.
+- Prevent accidental duplicate submissions where practical.
+- Preserve input when a recoverable request fails.
+- Show clear success and failure states.
+- Respect backend size and format limits.
+- Do not calculate authoritative business decisions in the browser.
+
+For coordinator operations, ensure required reasons and resolution notes are collected before sending requests.
+
+Do not assume client-side validation makes unauthorized requests safe.
+
+## 12. Loading, Empty, Error, and Success States
+
+Every API-connected feature should support relevant states:
+
+- Loading.
+- Empty result.
+- Successful result.
+- Validation failure.
+- Authentication expiration.
+- Authorization denial.
+- Network error.
+- Server error.
+- Successful mutation.
+
+Do not replace API failures with fabricated success data.
+
+Avoid silently swallowing errors.
+
+Show useful user-facing messages without exposing SQL errors or sensitive server details.
+
+## 13. Accessibility and Responsive UI
+
+Follow the existing design system and accessibility conventions.
+
+Implement:
+
+- Semantic HTML.
+- Accessible labels.
+- Keyboard navigation.
+- Visible focus states.
+- Appropriate ARIA attributes where needed.
+- Accessible form errors.
+- Responsive layouts.
+- Usable loading and empty states.
+- Proper dialog focus management.
+
+Do not introduce inaccessible custom controls when suitable existing components are available.
+
+## 14. Testing Architecture
+
+Separate testing responsibilities.
+
+### Unit and Component Tests
+
+May use mocks for isolated frontend logic.
+
+Examples:
+
+- Button behavior.
+- Form field validation.
+- Loading indicators.
+- Error rendering.
+- Pagination UI.
+- Pure formatting functions.
+
+Mocks must be explicitly identified as test doubles.
+
+### API Integration Tests
+
+Must verify compatibility with the actual Go backend.
+
+Use real endpoints and isolated test fixtures.
+
+Do not claim API integration based solely on intercepted or fabricated responses.
+
+### End-to-End Tests
+
+Must exercise the actual application stack:
+
+- React frontend.
+- Go HTTP API.
+- PostgreSQL with migrations.
+- Redis where required.
+- Real authentication and authorization behavior.
+- Controlled test accounts and test records.
+
+Do not create a fake backend solely to make end-to-end tests pass.
+
+### Smoke Tests
+
+A full-stack smoke test must connect to a real running Go backend.
+
+It should verify at least one meaningful frontend-to-backend workflow appropriate to the feature.
+
+A browser rendering a page with hardcoded data is not proof of successful integration.
+
+## 15. Development and Docker Rules
+
+The project is developed on Windows with Docker Desktop and WSL 2.
+
+Before testing:
+
+1. Inspect the existing `compose.yaml`.
+2. Determine whether PostgreSQL and Redis are running.
+3. Verify the required database migrations have been applied.
+4. Start the real Go API using the repository's documented procedure.
+5. Start the existing frontend development server.
+6. Verify frontend requests reach the real backend.
+
+Do not:
+
+- Overwrite `.env`.
+- Delete existing database volumes.
+- Change configured local ports without reason.
+- Run destructive database commands against development or production data.
+- Create unnecessary mock API services.
+- Require real university SMTP credentials for unrelated frontend tests.
+
+Use isolated databases for automated integration testing where possible.
+
+## 16. Frontend Implementation Workflow
+
+For every frontend task, follow this sequence:
+
+1. Read `AGENTS.md`.
+2. Inspect the complete repository structure.
+3. Understand the requested feature.
+4. Locate the existing backend API.
+5. Inspect request/response contracts.
+6. Inspect existing frontend architecture and reusable components.
+7. Identify the smallest necessary frontend changes.
+8. Implement the feature within its appropriate feature module.
+9. Connect it to the real backend.
+10. Add appropriate unit/component tests.
+11. Run integration or end-to-end tests against real services.
+12. Run TypeScript checks, linting, and production build.
+13. Review accessibility and error handling.
+14. Document any missing backend capability.
+15. Report exactly which checks were executed and passed.
+
+Do not create unnecessary files, placeholder implementations, or duplicate infrastructure.
+
+## 17. Completion and Evidence Requirements
+
+Before marking frontend work complete, agents MUST report:
+
+1. Frontend files created or modified.
+2. Existing backend endpoints integrated.
+3. API contracts verified.
+4. TypeScript and build results.
+5. Unit/component test results.
+6. Actual frontend-to-backend integration test results.
+7. Whether test doubles were used.
+8. Authentication and authorization behavior tested.
+9. Any missing functionality.
+10. Known limitations.
+
+**Do not claim full-stack verification if only isolated frontend tests were executed.**
+
+A feature is considered fully integrated only when its behavior has been exercised against the actual Go backend and relevant persistence services.
+
+## 18. Final Architectural Principles
+
+- Follow the existing frontend structure before introducing new folders or libraries.
+- Organize business behavior by feature.
+- Keep pages focused on composition.
+- Keep shared code independent of business features.
+- Keep API integrations inside feature-specific adapters.
+- Use TypeScript types matching real backend contracts.
+- Reuse the existing design system.
+- Do not duplicate backend business rules.
+- Do not create fake backend implementations.
+- Keep mocked tests separate from real integration evidence.
+- Preserve authentication and authorization boundaries.
+- Prefer small, maintainable components over monolithic pages.
+- Preserve working code and avoid unrelated refactors.
+
+**The Tutti frontend must be a real client of the existing Go application, not an independently simulated version of the backend.**
+
 ---
 
 **If unsure where to start:** identify the issue; read `README.md`, this `AGENTS.md`, the relevant `docs/<module>.md`, the current `backend/internal/<module>/` code, affected migrations, bootstrap wiring, and the integration test that exercises the workflow. Then propose the smallest safe change.
