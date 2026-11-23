@@ -23,6 +23,10 @@ async function loadWindow(tutorId: string, from: Date, to: Date, signal: AbortSi
 
 interface FreeTimesProps {
   tutorId: string;
+  /** When given, each free time is a button that starts booking it (#32). */
+  onSelect?: (slot: FreeSlot) => void;
+  /** Reload after a booking took some of the free time. */
+  reloadKey?: number;
   /** Injected for tests; defaults to now and the browser's time zone. */
   now?: Date;
   timeZone?: string;
@@ -32,7 +36,7 @@ interface FreeTimesProps {
  * The tutor's free time, two weeks at a time. This is a snapshot: the booking
  * step (#32) re-checks availability on the server.
  */
-export function FreeTimes({ tutorId, now, timeZone = browserTimeZone() }: FreeTimesProps) {
+export function FreeTimes({ tutorId, onSelect, reloadKey = 0, now, timeZone = browserTimeZone() }: FreeTimesProps) {
   const [start] = useState(() => now ?? new Date());
   const [windowIndex, setWindowIndex] = useState(0);
   const [attempt, setAttempt] = useState(0);
@@ -40,7 +44,7 @@ export function FreeTimes({ tutorId, now, timeZone = browserTimeZone() }: FreeTi
 
   const from = new Date(start.getTime() + windowIndex * WINDOW_DAYS * DAY_MS);
   const to = new Date(from.getTime() + WINDOW_DAYS * DAY_MS);
-  const key = `${tutorId}#${from.toISOString()}#${attempt}`;
+  const key = `${tutorId}#${from.toISOString()}#${attempt}#${reloadKey}`;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -88,8 +92,22 @@ export function FreeTimes({ tutorId, now, timeZone = browserTimeZone() }: FreeTi
               <ul className="slot-list">
                 {day.items.map((slot) => (
                   <li key={`${slot.id}-${slot.starts_at}`} className="slot">
-                    <span className="slot__time">{timeRange(slot, timeZone)}</span>{' '}
-                    <span className="muted">{MODE_LABEL[slot.allowed_mode] ?? slot.allowed_mode}</span>
+                    {onSelect ? (
+                      <button
+                        type="button"
+                        className="slot__button"
+                        onClick={() => onSelect(slot)}
+                        aria-label={`Book ${day.label}, ${timeRange(slot, timeZone)}, ${MODE_LABEL[slot.allowed_mode] ?? slot.allowed_mode}`}
+                      >
+                        <span className="slot__time">{timeRange(slot, timeZone)}</span>{' '}
+                        <span className="muted">{MODE_LABEL[slot.allowed_mode] ?? slot.allowed_mode}</span>
+                      </button>
+                    ) : (
+                      <>
+                        <span className="slot__time">{timeRange(slot, timeZone)}</span>{' '}
+                        <span className="muted">{MODE_LABEL[slot.allowed_mode] ?? slot.allowed_mode}</span>
+                      </>
+                    )}
                   </li>
                 ))}
               </ul>

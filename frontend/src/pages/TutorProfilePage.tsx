@@ -1,9 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router';
+import { BookingForm } from '../features/bookings/BookingForm';
+import type { Session } from '../features/bookings/types';
 import { tutorsApi } from '../features/tutors/api';
 import { FreeTimes } from '../features/tutors/FreeTimes';
 import { ratingText } from '../features/tutors/format';
-import type { TutorProfile } from '../features/tutors/types';
+import type { FreeSlot, TutorProfile } from '../features/tutors/types';
 import { ApiError } from '../shared/api/client';
 import { errorMessage } from '../shared/api/errors';
 import { Alert, PageLoader } from '../shared/ui';
@@ -16,6 +18,16 @@ export function TutorProfilePage() {
   const [params] = useSearchParams();
   const searchedSubject = params.get('subject_id');
   const [load, setLoad] = useState<Load | null>(null);
+  // Booking (#32): step 1 picks a free time, step 2 fills in the form, step 3 sends it.
+  const [chosen, setChosen] = useState<FreeSlot | null>(null);
+  const [booked, setBooked] = useState<Session | null>(null);
+  const [freeTimesVersion, setFreeTimesVersion] = useState(0);
+  const bookedRef = useRef<HTMLDivElement>(null);
+
+  // The confirmation is above the form the student just sent; move focus (and the view) to it.
+  useEffect(() => {
+    if (booked) bookedRef.current?.focus();
+  }, [booked]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -77,7 +89,42 @@ export function TutorProfilePage() {
         </ul>
       </section>
 
-      <FreeTimes tutorId={profile.id} />
+      {booked && (
+        <div ref={bookedRef} tabIndex={-1}>
+        <Alert kind="success" title="Request sent">
+          <p>
+            {profile.name} will confirm or decline your {booked.subject_name} session. You can follow it in{' '}
+            <Link to="/sessions">My sessions</Link>.
+          </p>
+        </Alert>
+        </div>
+      )}
+
+      <FreeTimes
+        tutorId={profile.id}
+        reloadKey={freeTimesVersion}
+        onSelect={(slot) => {
+          setBooked(null);
+          setChosen(slot);
+        }}
+      />
+
+      {chosen && (
+        <BookingForm
+          key={`${chosen.id}-${chosen.starts_at}`}
+          tutorName={profile.name}
+          offerings={profile.offerings}
+          window={chosen}
+          subjectId={searchedSubject}
+          onCancel={() => setChosen(null)}
+          onBooked={(session) => {
+            setChosen(null);
+            setBooked(session);
+            // The booked time is no longer free.
+            setFreeTimesVersion((n) => n + 1);
+          }}
+        />
+      )}
     </section>
   );
 }

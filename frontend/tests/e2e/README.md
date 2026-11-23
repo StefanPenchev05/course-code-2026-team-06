@@ -89,4 +89,13 @@ free time" without depending on screens that don't exist yet.
   time, skips one weekly date and restores it. A student then books the one-off time (real
   `POST /sessions`), and removing it is refused with the "a student has a booking" explanation.
 
+## Journeys covered (issue #32)
+
+- Two approved tutors are free at the same time. A verified student finds the first one through
+  search and books in three steps from the profile (choose a free time, fill in purpose, length and
+  description, send). My sessions shows it as "Waiting for the tutor" with "You are the student";
+  the tutor's own API view has the tutor role. Booking the second tutor at the same time is refused
+  by the database's overlap rule (real 409) with a clear message. Cancelling requires a reason;
+  afterwards the session leaves the active list and shows as cancelled with the reason.
+
 Failed runs keep a screenshot and trace in `test-results/` (`npx playwright show-trace <file>`).

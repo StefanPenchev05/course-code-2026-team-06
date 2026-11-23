@@ -120,3 +120,23 @@ h3 { font-size: 1.05rem; margin: 0; }
 .confirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .card .button-row { margin-top: 0.5rem; }
 .card .alert { margin-top: 0.5rem; }
+
+/* Booking */
+.slot:has(.slot__button) { padding: 0; }
+.slot__button { font: inherit; color: inherit; background: none; border: 0; border-radius: var(--radius); padding: 0.4rem 0.75rem; min-height: 44px; cursor: pointer; text-align: left; }
+.slot__button:hover { background: var(--color-info-bg); }
+.booking { margin-top: calc(var(--space) * 1.5); padding: var(--space); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); }
+.booking h2 { margin-top: 0; }
+h2:focus { outline: none; }
+h2:focus-visible { outline: 3px solid var(--color-primary); }
+textarea.field__input { resize: vertical; min-height: 5rem; }
+
+/* My sessions */
+.tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: var(--space); }
+.tabs__tab { font: inherit; min-height: 44px; padding: 0.4rem 1rem; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.tabs__tab[aria-pressed='true'] { background: var(--color-primary); color: var(--color-primary-text); border-color: var(--color-primary); }
+.session__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.badge { font-size: 0.85rem; font-weight: 600; padding: 0.15rem 0.6rem; border-radius: 999px; background: var(--color-info-bg); }
+.badge--accepted, .badge--completed { background: var(--color-success-bg); }
+.badge--declined, .badge--expired, .badge--cancelled, .badge--no_show { background: var(--color-warning-bg); }
+.cancel-form { margin-top: 0.75rem; }

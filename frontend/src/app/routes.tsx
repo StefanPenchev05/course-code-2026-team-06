@@ -2,6 +2,7 @@ import type { RouteObject } from 'react-router';
 import { ComingSoonPage } from '../pages/ComingSoonPage';
 import { HomePage } from '../pages/HomePage';
 import { LoginPage } from '../pages/LoginPage';
+import { MySessionsPage } from '../pages/MySessionsPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { RegisterPage } from '../pages/RegisterPage';
 import { TutorAvailabilityPage } from '../pages/TutorAvailabilityPage';
@@ -37,7 +38,7 @@ export const routes: RouteObject[] = [
             children: [
               { path: 'tutors', element: <TutorSearchPage /> },
               { path: 'tutors/:id', element: <TutorProfilePage /> },
-              { path: 'sessions', element: <ComingSoonPage title="My sessions" issue={32} /> },
+              { path: 'sessions', element: <MySessionsPage /> },
               { path: 'tutor-applications', element: <ComingSoonPage title="Become a tutor" issue={30} /> },
             ],
           },
