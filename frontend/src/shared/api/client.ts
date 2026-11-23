@@ -42,10 +42,20 @@ export interface RequestOptions {
 export const API_BASE = '/api/v1';
 
 let unauthorizedHandler: (() => void) | null = null;
+let forbiddenHandler: ((path: string) => void) | null = null;
 
 /** Called whenever the API answers 401, e.g. when the session expired. */
 export function onUnauthorized(handler: (() => void) | null): void {
   unauthorizedHandler = handler;
+}
+
+/**
+ * Called whenever the API answers 403, with the request path. Usually that is
+ * an ordinary permission denial, but it is also what a suspended or closed
+ * account gets on every request, so the auth layer re-checks the session.
+ */
+export function onForbidden(handler: ((path: string) => void) | null): void {
+  forbiddenHandler = handler;
 }
 
 export function buildUrl(path: string, query?: Query): string {
@@ -106,6 +116,7 @@ export async function request<T>(method: string, path: string, options: RequestO
   const payload = await readBody(response);
   if (!response.ok) {
     if (response.status === 401) unauthorizedHandler?.();
+    if (response.status === 403) forbiddenHandler?.(path);
     throw new ApiError(response.status, serverMessage(payload));
   }
   return payload as T;

@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -49,7 +49,45 @@ function renderAt(path: string) {
 
 afterEach(() => vi.unstubAllGlobals());
 
+const PROGRAM_ID = '00000000-0000-0000-0000-000000000111';
+const OTHER_SUBJECT = { id: '00000000-0000-0000-0000-000000000222', code: 'DB-1', name: 'Databases' };
+
 describe('TutorSearchPage', () => {
+  it("lists the student's own program subjects without typing, and filters them", async () => {
+    const { calls } = mockApi({
+      'GET /api/v1/auth/me': () => json(200, { ...verifiedStudent, program_id: PROGRAM_ID }),
+      ...catalog,
+      [`GET /api/v1/programs/${PROGRAM_ID}/subjects`]: ({ url }) => {
+        const q = new URL(url, 'http://x').searchParams.get('q') ?? '';
+        const data = [SUBJECT, OTHER_SUBJECT].filter((s) => s.name.toLowerCase().includes(q.toLowerCase()));
+        return json(200, { data, pagination: { limit: 25, offset: 0, has_more: false } });
+      },
+      'GET /api/v1/tutors': () => json(200, { data: [MATCH], pagination: { limit: 20, offset: 0, has_more: false } }),
+    });
+    renderAt('/tutors');
+    const user = userEvent.setup();
+
+    const list = await screen.findByRole('list', { name: 'Subjects in your program' });
+    expect(within(list).getAllByRole('button')).toHaveLength(2);
+
+    await user.type(screen.getByLabelText('Subject'), 'data');
+    await waitFor(() => expect(within(screen.getByRole('list', { name: 'Subjects in your program' })).getAllByRole('button')).toHaveLength(1));
+    await user.clear(screen.getByLabelText('Subject'));
+    await user.click(await screen.findByRole('button', { name: /Algorithms/ }));
+
+    expect(await screen.findByRole('link', { name: 'Tom Tutor' })).toBeInTheDocument();
+    // The global subject search is not used when the program is known.
+    expect(calls.some((c) => c.url.startsWith('/api/v1/subjects?'))).toBe(false);
+  });
+
+  it('falls back to searching all subjects when the program is unknown', async () => {
+    mockApi({ ...me, ...catalog });
+    renderAt('/tutors');
+
+    expect(await screen.findByText('Type at least two letters of the subject name or code.')).toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'Subjects in your program' })).not.toBeInTheDocument();
+  });
+
   it('finds tutors for a chosen subject and links to their profile', async () => {
     const { calls } = mockApi({
       ...me,

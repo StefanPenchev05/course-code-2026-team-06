@@ -18,9 +18,21 @@ function validate(email: string, password: string): FieldErrors {
   return errors;
 }
 
+/** Explains why the user is on the login page when the server ended their session. */
+const ENDED_NOTICE = {
+  expired: { kind: 'info', title: 'Your session ended', text: 'For your security you were logged out. Please log in again.' },
+  blocked: {
+    kind: 'warning',
+    title: "This account can't be used right now",
+    text: 'If it was suspended or closed, contact the coordinator of your faculty.',
+  },
+} as const;
+
 // Temporary email/password login. It will be replaced by Uni.lu SSO (#68).
 export function LoginPage() {
-  const { login } = useAuth();
+  const { login, state } = useAuth();
+  // Why the user was logged out (if they didn't do it themselves). Hidden once they try again.
+  const [ended, setEnded] = useState(state.status === 'anonymous' ? state.ended : undefined);
   const navigate = useNavigate();
   const location = useLocation();
   const [email, setEmail] = useState('');
@@ -34,6 +46,7 @@ export function LoginPage() {
     const errors = validate(email, password);
     setFieldErrors(errors);
     setFormError(null);
+    setEnded(undefined);
     if (errors.email || errors.password) return;
 
     setSubmitting(true);
@@ -58,6 +71,11 @@ export function LoginPage() {
   return (
     <section className="page page--narrow">
       <h1>Log in</h1>
+      {ended && (
+        <Alert kind={ENDED_NOTICE[ended].kind} title={ENDED_NOTICE[ended].title}>
+          {ENDED_NOTICE[ended].text}
+        </Alert>
+      )}
       <form noValidate onSubmit={(event) => void handleSubmit(event)} className="form">
         {formError && <Alert>{formError}</Alert>}
         <TextField

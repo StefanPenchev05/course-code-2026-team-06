@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { useAuth } from '../features/auth/AuthContext';
 import { catalogApi, SubjectSearch, type Faculty, type Subject } from '../features/catalog';
 import { TutorResults } from '../features/tutors/TutorResults';
 import type { TutorSearchFilters } from '../features/tutors/types';
@@ -11,6 +12,7 @@ import { SelectField } from '../shared/ui';
  * shared links keep them.
  */
 export function TutorSearchPage() {
+  const { user } = useAuth();
   const [params, setParams] = useSearchParams();
   const subjectId = params.get('subject_id') ?? '';
   const facultyId = params.get('faculty_id') ?? '';
@@ -67,7 +69,7 @@ export function TutorSearchPage() {
       <p>Tutors are students who were approved by a coordinator for a subject. You can book a tutor from any faculty if the subject is also part of your program.</p>
 
       <div className="filters">
-        <SubjectSearch selected={shownSubject} onSelect={chooseSubject} />
+        <SubjectSearch selected={shownSubject} onSelect={chooseSubject} programId={user?.program_id} />
         {subjectId && (
           <div className="filters__row">
             {faculties.length > 0 && (

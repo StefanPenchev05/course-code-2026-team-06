@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { json, mockApi } from '../../test/mockApi';
-import { api, ApiError, buildUrl, onUnauthorized } from './client';
+import { api, ApiError, buildUrl, onForbidden, onUnauthorized } from './client';
 import { errorMessage } from './errors';
 
 afterEach(() => {
   vi.unstubAllGlobals();
   onUnauthorized(null);
+  onForbidden(null);
 });
 
 describe('buildUrl', () => {
@@ -58,6 +59,17 @@ describe('api client', () => {
 
     await expect(api.get('/auth/me')).rejects.toBeInstanceOf(ApiError);
     expect(handler).toHaveBeenCalledOnce();
+  });
+});
+
+describe('onForbidden', () => {
+  it('reports 403 responses with the request path', async () => {
+    const handler = vi.fn();
+    onForbidden(handler);
+    mockApi({ 'GET /api/v1/tutors': () => json(403, { error: 'permission denied' }) });
+
+    await expect(api.get('/tutors', { query: { subject_id: 'x' } })).rejects.toBeInstanceOf(ApiError);
+    expect(handler).toHaveBeenCalledWith('/tutors');
   });
 });
 

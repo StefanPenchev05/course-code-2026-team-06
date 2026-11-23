@@ -67,6 +67,11 @@ free time" without depending on screens that don't exist yet.
 - Login with a wrong password.
 - A coordinator rejects a registration with a reason (through the API) → the student sees the
   reason, corrects the details and resubmits → pending again.
+- The server forgets a logged-in session while the browser keeps its cookie (what a timeout looks
+  like) → the next request gets a real 401 → "Your session ended" → logging in again returns to
+  the page the student was opening.
+- The home-faculty coordinator suspends a logged-in student (real `POST /coordinator/users/{id}/suspend`)
+  → the next request gets a real 403 → "This account can't be used right now"; logging in is refused.
 
 ## Journeys covered (issue #29)
 

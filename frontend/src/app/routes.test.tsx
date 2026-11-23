@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -64,6 +64,8 @@ describe('routing and authentication', () => {
     await user.click(screen.getByRole('button', { name: 'Log in' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Email or password is incorrect.');
+    // A failed login is not an ended session.
+    expect(screen.queryByText('Your session ended')).not.toBeInTheDocument();
   });
 
   it('explains a refused login without claiming the password is wrong', async () => {
@@ -124,5 +126,88 @@ describe('routing and authentication', () => {
 
     expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/login');
+    // Logging out on purpose shows no "session ended" notice.
+    expect(screen.queryByText('Your session ended')).not.toBeInTheDocument();
+  });
+});
+
+describe('when the server ends the session', () => {
+  function returnToTab() {
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+  }
+
+  it('explains an expired session and returns to the same page after logging in again', async () => {
+    let session = true;
+    mockApi({
+      'GET /api/v1/auth/me': () => (session ? json(200, verifiedStudent) : json(401, { error: 'invalid credentials or session' })),
+      'POST /api/v1/auth/login': () => {
+        session = true;
+        return json(200, verifiedStudent);
+      },
+    });
+    const router = renderAt('/sessions');
+    const user = userEvent.setup();
+    expect(await screen.findByRole('heading', { name: 'My sessions' })).toBeInTheDocument();
+
+    session = false; // e.g. the session timed out on the server
+    returnToTab();
+
+    expect(await screen.findByText('Your session ended')).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/login');
+
+    await user.type(screen.getByLabelText('University email'), 'ana@uni.lu');
+    await user.type(screen.getByLabelText('Password'), 'correct horse battery');
+    await user.click(screen.getByRole('button', { name: 'Log in' }));
+
+    expect(await screen.findByRole('heading', { name: 'My sessions' })).toBeInTheDocument();
+  });
+
+  it('explains a suspended or closed account found during use', async () => {
+    let blocked = false;
+    mockApi({
+      'GET /api/v1/auth/me': () => (blocked ? json(403, { error: 'permission denied' }) : json(200, verifiedStudent)),
+    });
+    renderAt('/');
+    expect(await screen.findByRole('heading', { name: 'Welcome, Ana Student' })).toBeInTheDocument();
+
+    blocked = true; // a coordinator suspended the account
+    returnToTab();
+
+    expect(await screen.findByText("This account can't be used right now")).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Log in' })).toBeInTheDocument();
+  });
+
+  it('re-checks the account when any request is forbidden', async () => {
+    let blocked = false;
+    mockApi({
+      'GET /api/v1/auth/me': () => (blocked ? json(403, { error: 'permission denied' }) : json(200, verifiedStudent)),
+      'GET /api/v1/subjects': () => json(403, { error: 'permission denied' }),
+    });
+    renderAt('/tutors');
+    const user = userEvent.setup();
+    const subject = await screen.findByLabelText('Subject');
+
+    blocked = true;
+    await user.type(subject, 'algo');
+
+    expect(await screen.findByText("This account can't be used right now")).toBeInTheDocument();
+  });
+
+  it('explains a blocked account on page load instead of "can\'t reach Tutti"', async () => {
+    mockApi({ 'GET /api/v1/auth/me': () => json(403, { error: 'permission denied' }) });
+    renderAt('/');
+
+    expect(await screen.findByText("This account can't be used right now")).toBeInTheDocument();
+    expect(screen.queryByText("We can't reach Tutti right now")).not.toBeInTheDocument();
+  });
+
+  it('does not show a notice for an ordinary logged-out visit', async () => {
+    mockApi({ 'GET /api/v1/auth/me': () => json(401, { error: 'authentication required' }) });
+    renderAt('/sessions');
+
+    expect(await screen.findByRole('heading', { name: 'Log in' })).toBeInTheDocument();
+    expect(screen.queryByText('Your session ended')).not.toBeInTheDocument();
   });
 });

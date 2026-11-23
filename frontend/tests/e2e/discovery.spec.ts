@@ -41,9 +41,13 @@ test('a student finds an approved tutor for a subject and sees the profile with 
   await page.getByRole('link', { name: 'Find a tutor' }).first().click();
   await expect(page.getByRole('heading', { name: 'Find a tutor' })).toBeVisible();
 
-  // Subject filter: search by code, pick the subject.
-  await page.getByLabel('Subject').fill(subjectCode);
-  await page.getByRole('button', { name: new RegExp(subjectName) }).click();
+  // Subject filter: the student's own program subjects are listed without typing (program_id from
+  // /auth/me), and typing the code filters the list.
+  const ownSubjects = page.getByRole('list', { name: 'Subjects in your program' });
+  await expect(ownSubjects.getByRole('button', { name: new RegExp(subjectName) })).toBeVisible();
+  await page.getByLabel('Subject', { exact: true }).fill(subjectCode);
+  await expect(ownSubjects.getByRole('button')).toHaveCount(1);
+  await ownSubjects.getByRole('button', { name: new RegExp(subjectName) }).click();
 
   // Only the approved tutor is listed, with the matching offering and aggregate rating.
   const card = page.getByRole('listitem').filter({ has: page.getByRole('link', { name: tutor.name }) });

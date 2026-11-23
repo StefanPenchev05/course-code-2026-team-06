@@ -13,6 +13,8 @@ export interface CurrentUser {
   verification_status?: VerificationStatus;
   rejection_reason?: string;
   coordinator_faculty_id?: string;
+  /** The student's current program (students and tutors only). A UI hint: the server still checks membership. */
+  program_id?: string;
 }
 
 export function hasRole(user: CurrentUser | null, role: Role): boolean {

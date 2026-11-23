@@ -122,3 +122,11 @@ export async function approvedTutorWithFreeTime(
   }
   return tutor;
 }
+
+/** The home-faculty coordinator suspends a user (POST /coordinator/users/{id}/suspend, returns 200). */
+export function suspendUser(userId: string, reason: string): Promise<void> {
+  return asCoordinator(async (api) => {
+    const suspended = await api.post(`/api/v1/coordinator/users/${userId}/suspend`, { data: { reason } });
+    expect(suspended.status(), `suspension: ${await suspended.text()}`).toBe(200);
+  });
+}
