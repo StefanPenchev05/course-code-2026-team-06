@@ -1,0 +1,15 @@
+[
+ {"name":"valid_booking","message":{"version":1,"id":"00000000-0000-0000-0000-000000000851","type":"booking.changed","entityId":"00000000-0000-0000-0000-000000000314","occurredAt":"2026-11-23T16:00:00Z"}},
+ {"name":"account_without_identifier","message":{"version":1,"id":"00000000-0000-0000-0000-000000000852","type":"account.access_changed","occurredAt":"2026-11-23T16:00:00Z"}},
+ {"name":"unknown_version","error":"version","message":{"version":2,"id":"00000000-0000-0000-0000-000000000851","type":"booking.changed","entityId":"00000000-0000-0000-0000-000000000314","occurredAt":"2026-11-23T16:00:00Z"}},
+ {"name":"unknown_type","error":"type","message":{"version":1,"id":"00000000-0000-0000-0000-000000000851","type":"future.changed","occurredAt":"2026-11-23T16:00:00Z"}},
+ {"name":"invalid_event_id","error":"invalid","message":{"version":1,"id":"private@example.test","type":"account.access_changed","occurredAt":"2026-11-23T16:00:00Z"}},
+ {"name":"nil_event_id","error":"invalid","message":{"version":1,"id":"00000000-0000-0000-0000-000000000000","type":"account.access_changed","occurredAt":"2026-11-23T16:00:00Z"}},
+ {"name":"missing_entity_id","error":"invalid","message":{"version":1,"id":"00000000-0000-0000-0000-000000000851","type":"booking.changed","occurredAt":"2026-11-23T16:00:00Z"}},
+ {"name":"private_payload","error":"invalid","message":{"version":1,"id":"00000000-0000-0000-0000-000000000851","type":"account.access_changed","occurredAt":"2026-11-23T16:00:00Z","grade":18}},
+ {"name":"wrong_case_field","error":"invalid","message":{"Version":1,"id":"00000000-0000-0000-0000-000000000851","type":"account.access_changed","occurredAt":"2026-11-23T16:00:00Z"}},
+ {"name":"duplicate_object_key","error":"invalid","message":{"version":1,"version":2,"id":"00000000-0000-0000-0000-000000000851","type":"account.access_changed","occurredAt":"2026-11-23T16:00:00Z"}},
+ {"name":"non_utc_timestamp","error":"invalid","message":{"version":1,"id":"00000000-0000-0000-0000-000000000851","type":"account.access_changed","occurredAt":"2026-11-23T17:00:00+01:00"}},
+ {"name":"null_optional_identifier","error":"invalid","message":{"version":1,"id":"00000000-0000-0000-0000-000000000851","type":"account.access_changed","entityId":null,"occurredAt":"2026-11-23T16:00:00Z"}},
+ {"name":"array","error":"invalid","message":[]}
+]

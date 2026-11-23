@@ -3,6 +3,7 @@ module github.com/StefanPenchev05/course-code-2026-team-06/backend
 go 1.24.0
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/coreos/go-oidc/v3 v3.17.0
 	github.com/go-jose/go-jose/v4 v4.1.3
 	github.com/jackc/pgx/v5 v5.8.0
