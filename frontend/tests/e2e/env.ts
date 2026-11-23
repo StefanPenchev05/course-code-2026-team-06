@@ -26,13 +26,17 @@ export function newPassword(): string {
 export interface TestCatalog {
   facultyId: string;
   facultyName: string;
+  programId: string;
   programLabel: string;
+  subjectId: string;
+  subjectCode: string;
+  subjectName: string;
   coordinatorEmail: string;
   coordinatorPassword: string;
 }
 
 /**
- * The faculty, program and coordinator global-setup.ts created for this run.
+ * The faculty, program, subject and coordinator global-setup.ts created for this run.
  * Playwright passes them to the test workers through the environment.
  */
 export function testCatalog(): TestCatalog {

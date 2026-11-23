@@ -2,4 +2,5 @@
 // not from the files inside this folder.
 export { catalogApi } from './api';
 export { ProgramPicker } from './ProgramPicker';
-export type { DegreeLevel, Faculty, Program } from './types';
+export { SubjectSearch } from './SubjectSearch';
+export type { DegreeLevel, Faculty, Program, Subject } from './types';

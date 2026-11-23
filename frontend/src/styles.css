@@ -85,3 +85,30 @@ a { color: var(--color-primary); }
 
 .link-list { padding-left: 1.25rem; }
 .link-list li { margin: 0.5rem 0; }
+
+.muted { color: var(--color-muted); }
+h2 { font-size: 1.25rem; margin: calc(var(--space) * 1.5) 0 0.5rem; }
+h3 { font-size: 1.05rem; margin: 0; }
+
+/* Search filters */
+.filters { display: flex; flex-direction: column; gap: var(--space); margin-bottom: var(--space); }
+.filters__row { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space); }
+.subject-chosen { margin: 0; }
+.choice-list { list-style: none; padding: 0; margin: 0.5rem 0 0; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); }
+.choice-list li + li { border-top: 1px solid var(--color-border); }
+.choice-list__item { display: block; width: 100%; text-align: left; font: inherit; padding: 0.75rem; min-height: 44px; background: none; border: 0; cursor: pointer; color: inherit; }
+.choice-list__item:hover { background: var(--color-info-bg); }
+
+/* Tutor cards */
+.card-list { list-style: none; padding: 0; margin: 0 0 var(--space); display: flex; flex-direction: column; gap: 0.75rem; }
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: var(--space); }
+.card p { margin: 0.25rem 0 0; }
+.card__meta { color: var(--color-muted); margin: 0.25rem 0 0; }
+
+/* Free times */
+.day-list { display: flex; flex-direction: column; gap: var(--space); margin-bottom: var(--space); }
+.day__title { margin-bottom: 0.25rem; }
+.slot-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.slot { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 0.4rem 0.75rem; }
+.slot__time { font-weight: 600; }
+.button-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }

@@ -4,6 +4,8 @@ import { HomePage } from '../pages/HomePage';
 import { LoginPage } from '../pages/LoginPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { RegisterPage } from '../pages/RegisterPage';
+import { TutorProfilePage } from '../pages/TutorProfilePage';
+import { TutorSearchPage } from '../pages/TutorSearchPage';
 import { RouteErrorPage } from '../pages/RouteErrorPage';
 import { AppLayout } from './AppLayout';
 import { PublicOnly, RequireAuth, RequireRole } from './guards';
@@ -32,7 +34,8 @@ export const routes: RouteObject[] = [
           {
             element: <RequireRole verifiedStudent />,
             children: [
-              { path: 'tutors', element: <ComingSoonPage title="Find a tutor" issue={29} /> },
+              { path: 'tutors', element: <TutorSearchPage /> },
+              { path: 'tutors/:id', element: <TutorProfilePage /> },
               { path: 'sessions', element: <ComingSoonPage title="My sessions" issue={32} /> },
               { path: 'tutor-applications', element: <ComingSoonPage title="Become a tutor" issue={30} /> },
             ],

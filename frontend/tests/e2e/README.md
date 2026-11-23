@@ -9,8 +9,8 @@ PostgreSQL and Redis. Nothing is mocked, so a passing run is real frontend-to-ba
 - The backend's tools: Go, PostgreSQL with `psql`, Redis and the `migrate` CLI
   (see the root `README.md` and `docs/identity.md`).
 - Playwright's browser, once per machine: `npx playwright install chromium`.
-- A **disposable** database. Each run adds a test faculty, program, coordinator and students
-  to it, and they stay there afterwards.
+- A **disposable** database. Each run adds a test faculty, program, subject, semester,
+  coordinator, students and a tutor to it, and they stay there afterwards.
 
 ## Run
 
@@ -35,13 +35,20 @@ before the first test and says what to fix.
 
 ## How the test data is made
 
-Students are created through the real sign-up page, with a new email and student number every run.
+Students are created through the real sign-up page or the real `POST /auth/register`, with a new
+email and student number every run.
 
-There is no API for creating faculties, programs or coordinators: the university provisions them.
-So `global-setup.ts` inserts one faculty, one program and that faculty's coordinator with `psql`,
-the same way `backend/tests/integration/identity_test.go` does. It then activates the coordinator
-through the real `POST /auth/activate-coordinator`. The schema allows one coordinator per faculty,
-so each run gets its own faculty and never touches real ones.
+There is no API for creating faculties, programs, subjects, semesters or coordinators: the
+university provisions them. So `global-setup.ts` inserts one faculty with one program and subject,
+a semester, and that faculty's coordinator with `psql`, the same way
+`backend/tests/integration/identity_test.go` does. It then activates the coordinator through the
+real `POST /auth/activate-coordinator`. The schema allows one coordinator per faculty, so each run
+gets its own faculty and never touches real ones.
+
+Everything else goes through the real API. `backend.ts` has helpers that do, as API calls, what
+other issues' screens will do (for example the coordinator approving a registration or a tutor
+application, or a tutor publishing free time), so a journey can start from "an approved tutor with
+free time" without depending on screens that don't exist yet.
 
 ## Settings
 
@@ -60,5 +67,13 @@ so each run gets its own faculty and never touches real ones.
 - Login with a wrong password.
 - A coordinator rejects a registration with a reason (through the API) → the student sees the
   reason, corrects the details and resubmits → pending again.
+
+## Journeys covered (issue #29)
+
+- An approved tutor with free time and a student whose application is *not* approved both exist.
+  A verified student searches the subject: only the approved tutor is listed, with the subject and
+  rating; the degree filter narrows and restores the list; the profile shows the subject, rating
+  count and the free time in the student's time zone (fixed to Europe/Luxembourg in the test);
+  the private grade from the application appears nowhere on the page.
 
 Failed runs keep a screenshot and trace in `test-results/` (`npx playwright show-trace <file>`).

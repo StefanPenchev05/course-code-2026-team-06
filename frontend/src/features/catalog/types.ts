@@ -14,7 +14,13 @@ export interface Program {
   level: DegreeLevel;
 }
 
-/** Catalog lists are wrapped in {"data": [...]} without pagination. */
+export interface Subject {
+  id: string;
+  code: string;
+  name: string;
+}
+
+/** Faculty and program lists are wrapped in {"data": [...]} without pagination; subject lists are paginated. */
 export interface DataList<T> {
   data: T[];
 }

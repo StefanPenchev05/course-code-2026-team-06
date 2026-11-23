@@ -1,19 +1,10 @@
-import { expect, request, test, type Page } from '@playwright/test';
-import { E2E, newPassword, testCatalog, uniqueEmail, uniqueStudentNumber } from './env';
+import { expect, test, type Page } from '@playwright/test';
+import { newStudent, rejectRegistration, type Student } from './backend';
+import { testCatalog, uniqueStudentNumber } from './env';
+import { logIn, logOut } from './ui';
 
 // Browser journeys for issue #28 against the REAL Go API, PostgreSQL and Redis.
 // No request is mocked.
-
-interface Student {
-  name: string;
-  email: string;
-  studentNumber: string;
-  password: string;
-}
-
-function newStudent(prefix: string): Student {
-  return { name: `E2E ${prefix}`, email: uniqueEmail(prefix), studentNumber: uniqueStudentNumber(), password: newPassword() };
-}
 
 async function fillRegistration(page: Page, student: Student) {
   await page.getByLabel('Full name').fill(student.name);
@@ -37,33 +28,6 @@ async function register(page: Page, student: Student) {
   await fillRegistration(page, student);
   await page.getByRole('button', { name: 'Create account' }).click();
   await expect(page.getByText('Your registration is waiting for approval')).toBeVisible();
-}
-
-async function logIn(page: Page, email: string, password: string) {
-  await page.getByLabel('University email').fill(email);
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Log in' }).click();
-}
-
-async function logOut(page: Page) {
-  await page.getByRole('button', { name: 'Log out' }).click();
-  await expect(page.getByRole('heading', { name: 'Log in' })).toBeVisible();
-}
-
-/** The coordinator's decision goes through the real API, as #51's screen will do it. */
-async function rejectAsCoordinator(studentEmail: string, reason: string) {
-  const api = await request.newContext({ baseURL: E2E.baseURL, extraHTTPHeaders: { Origin: E2E.baseURL } });
-  try {
-    const { coordinatorEmail: email, coordinatorPassword: password } = testCatalog();
-    expect((await api.post('/api/v1/auth/login', { data: { email, password } })).status()).toBe(200);
-    const queue = (await (await api.get('/api/v1/coordinator/verifications')).json()) as { id: string; email: string }[];
-    const verification = queue.find((item) => item.email === studentEmail);
-    expect(verification, 'the new registration is in the coordinator queue').toBeDefined();
-    const rejected = await api.post(`/api/v1/coordinator/verifications/${verification!.id}/reject`, { data: { reason } });
-    expect(rejected.status()).toBe(204);
-  } finally {
-    await api.dispose();
-  }
 }
 
 test('a new student registers, stays logged in, logs out and logs back in', async ({ page }) => {
@@ -124,7 +88,7 @@ test('a rejected student sees the reason, corrects the details and resubmits', a
   await logOut(page);
 
   const reason = 'E2E: the student number does not match our records.';
-  await rejectAsCoordinator(student.email, reason);
+  await rejectRegistration(student.email, reason);
 
   await page.goto('/login');
   await logIn(page, student.email, student.password);

@@ -6,8 +6,8 @@ import { E2E, newPassword, type TestCatalog } from './env';
 /**
  * Runs once before the journeys:
  * 1. Checks that the real Go API answers through Vite and accepts this origin.
- * 2. Creates a faculty, a program and that faculty's coordinator just for
- *    this run. The schema allows one coordinator per faculty, so a fresh
+ * 2. Creates a faculty, a program with one subject, a semester and that
+ *    faculty's coordinator just for this run. The schema allows one coordinator per faculty, so a fresh
  *    faculty keeps runs repeatable and never touches real faculties.
  *    Catalog data and coordinators are university-provisioned (there is no
  *    API to create them), so like the backend's integration tests
@@ -49,6 +49,9 @@ async function createTestCatalog(api: APIRequestContext): Promise<TestCatalog> {
   const coordinatorId = randomUUID();
   const facultyName = `E2E Faculty ${suffix}`;
   const programName = `E2E Program ${suffix}`;
+  const subjectId = randomUUID();
+  const subjectCode = `E2E-${suffix}`;
+  const subjectName = `E2E Subject ${suffix}`;
   const coordinatorEmail = `e2e-coordinator-${suffix}@${E2E.emailDomain}`;
   const coordinatorPassword = newPassword();
   // Same token format and storage as Identity's IssueActivation: 32 random
@@ -62,6 +65,10 @@ async function createTestCatalog(api: APIRequestContext): Promise<TestCatalog> {
       'BEGIN;',
       `INSERT INTO faculties (id, name) VALUES ('${facultyId}', '${facultyName}');`,
       `INSERT INTO programs (id, faculty_id, name, level) VALUES ('${programId}', '${facultyId}', '${programName}', 'BACHELOR');`,
+      `INSERT INTO subjects (id, code, name) VALUES ('${subjectId}', '${subjectCode}', '${subjectName}');`,
+      `INSERT INTO program_subjects (program_id, subject_id) VALUES ('${programId}', '${subjectId}');`,
+      // Free times must lie inside a configured semester (docs/scheduling.md).
+      `INSERT INTO semesters (name, starts_at, ends_at) VALUES ('E2E Semester ${suffix}', now() - interval '1 day', now() + interval '120 days');`,
       `INSERT INTO users (id, name, email) VALUES ('${coordinatorId}', 'E2E Coordinator', '${coordinatorEmail}');`,
       `INSERT INTO coordinators (user_id, employee_number, faculty_id) VALUES ('${coordinatorId}', 'E2E-${suffix}', '${facultyId}');`,
       `INSERT INTO account_activation_tokens (coordinator_id, token_hash, expires_at) VALUES ('${coordinatorId}', decode('${digest}', 'hex'), now() + interval '1 hour');`,
@@ -73,7 +80,17 @@ async function createTestCatalog(api: APIRequestContext): Promise<TestCatalog> {
   if (activated.status() !== 204) {
     throw new Error(`Activating the test coordinator failed with HTTP ${activated.status()}.`);
   }
-  return { facultyId, facultyName, programLabel: `${programName} (Bachelor)`, coordinatorEmail, coordinatorPassword };
+  return {
+    facultyId,
+    facultyName,
+    programId,
+    programLabel: `${programName} (Bachelor)`,
+    subjectId,
+    subjectCode,
+    subjectName,
+    coordinatorEmail,
+    coordinatorPassword,
+  };
 }
 
 function runSql(sql: string) {
