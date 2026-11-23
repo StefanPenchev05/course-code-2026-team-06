@@ -1,8 +1,11 @@
 package integration_test
 
 import (
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 func (f *bookingFixture) testAttendance(t *testing.T) {
@@ -131,16 +134,22 @@ func (f *bookingFixture) testAttendance(t *testing.T) {
 	f.count(t, 1, "SELECT count(*) FROM session_status_history WHERE session_id=$1 AND to_status='NO_SHOW'", competing)
 	f.count(t, 1, "SELECT count(*) FROM user_violations WHERE attendance_report_id=$1 AND user_id=$2", opposite, fixture(bookingOtherStudent))
 
-	// A pre-existing late-cancellation incident for this person and session
-	// cannot be overwritten or counted again through a confirmation.
+	// A fabricated late-cancellation incident without authentic history is now
+	// rejected by migration 15. A real confirmation remains idempotent.
 	f.setTime(109*time.Hour + 168*time.Hour)
 	last := f.session(t, 201, "POST", reports(duplicateIncident), evidence, bookingStudent)["id"].(string)
 	f.setTime(109*time.Hour + 168*time.Hour + time.Microsecond)
 	f.session(t, 422, "POST", reports(duplicateIncident), evidence, bookingTutor)
-	f.exec(t, `INSERT INTO user_violations (user_id,semester_id,session_id,kind,occurred_at)
+	_, err := f.db.Exec(f.ctx, `INSERT INTO user_violations (user_id,semester_id,session_id,kind,occurred_at)
 		VALUES ($1,$2,$3,'LATE_CANCELLATION','2027-01-05T00:00Z')`, fixture(bookingTutor), fixture(406), duplicateIncident)
-	f.session(t, 409, "POST", queue+"/"+last+"/confirm", note, bookingCoordinator)
+	var pgerr *pgconn.PgError
+	if !errors.As(err, &pgerr) || pgerr.Code != "23514" {
+		t.Fatal("fabricated incident accepted", err)
+	}
 	f.count(t, 1, "SELECT count(*) FROM attendance_reports WHERE id=$1 AND status='PENDING'", last)
 	f.count(t, 1, "SELECT count(*) FROM tutoring_sessions WHERE id=$1 AND status='ACCEPTED'", duplicateIncident)
+	f.count(t, 0, "SELECT count(*) FROM user_violations WHERE session_id=$1", duplicateIncident)
+	f.session(t, 200, "POST", queue+"/"+last+"/confirm", note, bookingCoordinator)
+	f.session(t, 409, "POST", queue+"/"+last+"/confirm", note, bookingCoordinator)
 	f.count(t, 1, "SELECT count(*) FROM user_violations WHERE session_id=$1", duplicateIncident)
 }

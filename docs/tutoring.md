@@ -1,5 +1,13 @@
 # Tutoring
 
+Issue #26 / migration 15 makes application history and qualification evidence
+append-only and freezes submitted applications except for their single review.
+New history timestamps equal the application's submission/review time. Automated
+offering withdrawal now appends `tutor_offering_deactivations` with SYSTEM,
+qualification, current program/faculty, time and reason in the same transaction;
+later explicit reapproval cannot erase it. See [audit preservation](audit-history.md)
+for the workflow matrix, failure tests and retention limitations.
+
 A verified student applies to tutor one university subject at a time. The coordinator assigned to the student's faculty reviews that application's subject, grade, and description. Approval adds a subject offering to the student's tutor profile. The same account can still request tutoring as a student.
 
 The module lives in [`backend/internal/tutoring`](../backend/internal/tutoring). Its application service validates workflows and depends on Catalog's academic interface and Identity's principal. The PostgreSQL adapter owns `tutor_applications`, `tutor_qualifications`, `tutor_profiles`, and `tutor_offerings`. It also writes application history and decision email records. Bootstrap uses the existing PostgreSQL pool, router, Redis sessions, and authorization middleware.

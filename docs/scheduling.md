@@ -1,5 +1,10 @@
 # Scheduling
 
+For verified calendar entry, exact half-open bounds, read-only dependency reports
+and next-semester tutor reconfirmation, see [trusted semester maintenance](semester-maintenance.md).
+The operator CLI creates calendar rows only. It cannot edit bounds, regenerate
+availability, carry over schedules, cancel sessions or change stored semester attribution.
+
 ## Stage 1: availability
 
 Tutoring availability belongs to the tutor's account and can serve any of their approved subject offerings. A **rule** defines one recurring local weekday and clock interval for a semester. A **slot** is a concrete published time window, either generated from a rule or entered as a one-off. An **exception** records a skipped local date for one rule. A **reservation** is the time held by a requested or accepted session. Published windows can include reserved time.
@@ -127,8 +132,63 @@ Successful single-session responses use `{"data":{...}}`. Lists accept `status`,
 - **Go application rules.** Enforce caller permissions, lifecycle transitions, minimum notice, purpose and meeting information, and both participants' current academic eligibility.
 - **Lock order.** Resolve the offering owner or session participants as a read hint. Lock both Identity accounts in UUID order and their student rows before validating eligibility or locking the session. Stage 1 shares the tutor account lock. Tutoring locks the offering, profile, qualification, and approval rows. Catalog locks membership and the program used to resolve faculty. Booking locks the slot and selected semester before inserting the session. Academic and discipline writers should use compatible account locks. The row locks on eligibility, slots, and semesters also coordinate with direct updates to those rows.
 - **PostgreSQL safeguards.** Existing triggers create, preserve, or release both participant blocks and require a valid source slot. The GiST exclusion constraint rejects overlaps across student and tutor roles while allowing adjacent half-open intervals. PostgreSQL also checks mode and time against the slot on insertion, semester boundaries, minimum notice, expiry, duration, and purpose. A recurring slot uses its rule's semester. A one-off slot uses the most recent configured semester that contains the full window. The fixed policy row is selected from the database and initialized under a transaction lock if absent.
-- **Atomic records.** Session changes, audit history, and deduplicated pending notifications commit together. A new request notifies the tutor, acceptance or decline notifies the student, cancellation notifies the other participant, and expiration queues one notification for each participant. No email delivery is implied by a queued record.
-- **Late cancellations.** Less than 24 hours before start is late. Exactly 24 hours is not. The Coordination operation records one violation for the cancelling participant in the session's semester. At two countable incidents it creates one flag for the participant's home faculty and queues a notification if that faculty has a coordinator. The user remains unsuspended. Confirmed no-shows use the same per-user lock and semester counter.
+- **Atomic records.** Session changes, audit history, and deduplicated pending notifications commit together. A new request notifies the tutor, acceptance or decline notifies the student, participant cancellation notifies the other participant, and expiration or coordinator policy cancellation queues one notification for each participant. No email delivery is implied by a queued record.
+- **Late participant cancellations.** Less than 24 hours before start is late. Exactly 24 hours is not. The Coordination operation records one violation for the cancelling participant in the session's semester. At two countable incidents it creates one flag for the participant's home faculty and queues a notification if that faculty has a coordinator. The user remains unsuspended. Confirmed no-shows use the same per-user lock and semester counter. Policy cancellation never invokes discipline.
+
+### Coordinator policy cancellation (FR19 / UC04, Issue #24)
+
+`POST /api/v1/coordinator/sessions/{id}/cancel` accepts only `{"reason":"..."}`
+from the session's stored-faculty coordinator. It requires current coordinator
+authority and same-origin authentication, independently of student verification.
+See [Coordination](coordination.md#policy-based-session-cancellation-fr19--uc04-issue-24)
+for validation, safe response fields, errors and Windows test commands.
+
+Scheduling's transaction-bound `PolicySessions` adapter reuses the existing locked
+session, update and event writer. Domain `CancelForPolicy` permits `REQUESTED` or
+`ACCEPTED` to become `CANCELLED`, with the existing cancellation timing and no extra
+cutoff. It records the coordinator, trimmed reason and server time with the late
+flag always false. Every terminal state conflicts. The existing reservation trigger
+releases both blocks; session/history/outbox changes commit together.
+
+Unlike participant operations above, this administrative path reads no participant
+eligibility and writes no discipline. It locks the current coordinator assignment
+and account first, then the scoped session, and acquires no participant account
+locks after it. Concurrent lifecycle operations recheck the locked session state.
+No violation, flag or account change occurs, even for a multi-role coordinator who
+is also a participant.
+
+Migration 13 adds explicit history origin: `COORDINATOR_POLICY` for this route,
+`PARTICIPANT` for new participant cancellations, and `null` for legacy/other events.
+The shared `USER` actor kind remains unchanged. Apply migration 13 before updated
+API/worker binaries. Generic emails notify both participants; the reason is visible
+through their existing authenticated session detail.
+
+### Suspension-driven cancellation (FR19 / UC14, Issue #25)
+
+Home-faculty account administration uses Scheduling's transaction-bound
+`SuspensionSessions` capability. With the target Identity account locked, it scans
+sessions where the target is either participant, status is `REQUESTED`/`ACCEPTED`,
+and `starts_at >= decision time`. The boundary includes a session starting exactly
+at that UTC instant; already-started and terminal sessions are preserved. Scope
+includes sessions stored under another tutor faculty without granting the acting
+coordinator access to their details.
+
+Keyset pages of 100 rows lock sessions in UUID order and continue to exhaustion in
+the same transaction. No `SKIP LOCKED`, total cap or separate cleanup job is used.
+Existing cancellation state/persistence primitives release both reservations,
+append history and queue notices to both participants. Origin `SUSPENSION` and
+`suspension_history_id` distinguish and link the initiating account decision.
+Session reasons are generic; private disciplinary reasons stay in Identity history.
+No late-cancellation violation is generated. Reinstatement never reopens sessions.
+
+New bookings and participant actions recheck eligibility under the shared Identity
+account locks. An earlier committed booking is visible to suspension; one that
+follows suspension cannot pass eligibility. Session locks serialize policy
+cancellation and expiration. All earlier pages roll back if any later cancellation,
+history/outbox insert or request context fails. Migration 14 precedes API/worker
+startup because the shared event writer now includes the decision-link column.
+See [Coordination](coordination.md#suspension-and-reinstatement-fr19--uc14-issue-25)
+for the full API, lock/retry contract, reinstatement rules and Windows commands.
 
 ## Stage 3B: completion and attendance
 

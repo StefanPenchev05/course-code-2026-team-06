@@ -61,6 +61,8 @@ func testOfferingRevalidation(t *testing.T, ctx context.Context, db *pgxpool.Poo
   (SELECT jsonb_agg(to_jsonb(q) ORDER BY id) FROM tutor_qualifications q),
   (SELECT jsonb_agg(to_jsonb(h) ORDER BY id) FROM application_status_history h))::text`
 	beforeEvidence := snapshot(evidenceSQL)
+	auditSQL := `SELECT coalesce(jsonb_agg(to_jsonb(h) ORDER BY id),'[]')::text FROM tutor_offering_deactivations h`
+	beforeAudit := snapshot(auditSQL)
 	offeringSQL := `SELECT coalesce(jsonb_agg(to_jsonb(o) ORDER BY id),'[]')::text FROM tutor_offerings o WHERE tutor_id=$1`
 	before := snapshot(offeringSQL, tutor)
 	if err := service.RevalidateTutorEligibility(ctx, fixture(9999)); !errors.Is(err, tutordomain.ErrNotFound) {
@@ -72,6 +74,14 @@ func testOfferingRevalidation(t *testing.T, ctx context.Context, db *pgxpool.Poo
 	// Cross-faculty program shares Databases; empty program forces two deactivations.
 	exec("INSERT INTO programs VALUES ($1,$3,'Revalidation shared','MASTER'),($2,$3,'Revalidation empty','MASTER')", fixture(214), fixture(215), fixture(202))
 	exec("INSERT INTO program_subjects VALUES ($1,$2)", fixture(214), fixture(222))
+	exec(`CREATE FUNCTION revalidation_audit_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+	 BEGIN RAISE EXCEPTION 'audit fixture'; END; $$;
+	 CREATE TRIGGER revalidation_audit_failure BEFORE INSERT ON tutor_offering_deactivations FOR EACH ROW EXECUTE FUNCTION revalidation_audit_failure()`)
+	auditErr := pgx.BeginFunc(ctx, db, func(tx pgx.Tx) error { return changeProgram(ctx, tx, tutor, fixture(215)) })
+	exec("DROP TRIGGER revalidation_audit_failure ON tutor_offering_deactivations; DROP FUNCTION revalidation_audit_failure()")
+	if auditErr == nil || snapshot(offeringSQL, tutor) != before || snapshot(auditSQL) != beforeAudit || snapshot("SELECT program_id::text FROM students WHERE user_id=$1", tutor) != fixture(211) {
+		t.Fatal("audit insertion failure did not roll back eligibility change", auditErr)
+	}
 	exec(`CREATE FUNCTION revalidation_test_failure() RETURNS trigger LANGUAGE plpgsql AS $$
  BEGIN IF NEW.subject_id='00000000-0000-0000-0000-000000000222'::uuid AND NOT NEW.is_active
  THEN RAISE EXCEPTION 'revalidation fixture'; END IF; RETURN NEW; END $$`)
@@ -97,7 +107,7 @@ func testOfferingRevalidation(t *testing.T, ctx context.Context, db *pgxpool.Poo
 	err = service.RevalidateTutorEligibility(ctx, tutor)
 	exec("DROP TRIGGER revalidation_test_failure ON tutor_offerings")
 	exec("DROP FUNCTION revalidation_test_failure()")
-	if err == nil || snapshot(offeringSQL, tutor) != before {
+	if err == nil || snapshot(offeringSQL, tutor) != before || snapshot(auditSQL) != beforeAudit {
 		t.Fatal("independent reconciliation failed to roll back", err)
 	}
 	// Commit a cross-faculty change with a shared subject; only Algorithms withdraws.
@@ -111,6 +121,7 @@ func testOfferingRevalidation(t *testing.T, ctx context.Context, db *pgxpool.Poo
 		t.Fatal(active, withdrawn, err)
 	}
 	after := snapshot(offeringSQL, tutor)
+	afterAudit := snapshot(auditSQL)
 	var wg sync.WaitGroup
 	failures := make(chan error, 2)
 	for range 2 {
@@ -124,7 +135,7 @@ func testOfferingRevalidation(t *testing.T, ctx context.Context, db *pgxpool.Poo
 			t.Fatal(err)
 		}
 	}
-	if snapshot(offeringSQL, tutor) != after {
+	if snapshot(offeringSQL, tutor) != after || snapshot(auditSQL) != afterAudit {
 		t.Fatal("idempotent calls changed deactivation metadata")
 	}
 	if beforeEvidence != snapshot(evidenceSQL) {

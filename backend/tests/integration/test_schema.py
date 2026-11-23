@@ -16,7 +16,7 @@ EXPECTED_TABLES = set("""
     availability_exceptions availability_slots tutoring_sessions session_participant_blocks
     feedback issue_reports semesters attendance_reports user_violations user_semester_flags
     notifications user_suspension_history session_status_history application_status_history
-    sponsors sponsor_reports
+    sponsors sponsor_reports issue_status_history
 """.split())
 TABLE_QUERY = """
     SELECT tablename FROM pg_tables
@@ -95,6 +95,140 @@ def check_concurrency(psql):
         raise RuntimeError(f"expected one committed booking with two blocks, got {counts}")
 
 
+def check_policy_cancellation_migration(psql, migrate):
+    # Only this disposable schema fixture is used. Legacy rows have unknown
+    # origin, including oversized old reasons that must remain untouched.
+    legacy_id = output(*psql, "-qAtc", """
+        INSERT INTO session_status_history
+            (session_id,from_status,to_status,actor_kind,changed_by_user_id,reason)
+        SELECT id,'REQUESTED','CANCELLED','USER',cancelled_by_user_id,repeat('x',2001)
+        FROM tutoring_sessions WHERE status='CANCELLED' ORDER BY id LIMIT 1
+        RETURNING id;
+    """)
+    if not legacy_id:
+        raise RuntimeError("missing legacy cancellation fixture")
+    legacy_query = f"SELECT to_jsonb(h)::text FROM session_status_history h WHERE id='{legacy_id}'"
+    before = output(*psql, "-Atc", legacy_query)
+    insert = """
+        INSERT INTO session_status_history
+            (session_id,from_status,to_status,actor_kind,changed_by_user_id,reason,cancellation_origin)
+        SELECT id,'REQUESTED','CANCELLED','USER',cancelled_by_user_id,'Policy fixture','COORDINATOR_POLICY'
+        FROM tutoring_sessions WHERE status='CANCELLED' ORDER BY id LIMIT 1;
+    """
+    for old, new in [("'COORDINATOR_POLICY'", "'CLIENT_SELECTED'"),
+                     ("'Policy fixture'", "NULL"), ("'Policy fixture'", "'  '"),
+                     ("'Policy fixture'", "repeat('x',2001)"),
+                     ("'REQUESTED'", "'COMPLETED'"), ("'REQUESTED'", "NULL")]:
+        statement = insert.replace(old, new)
+        run(*psql, "-q", "-c", f"SELECT tutti_test.expect_state('23514',$test${statement}$test$)",
+            stdout=subprocess.DEVNULL)
+    for origin in ["PARTICIPANT", "COORDINATOR_POLICY"]:
+        run(*psql, "-q", "-c", "BEGIN;" + insert.replace("COORDINATOR_POLICY", origin) + "ROLLBACK;")
+    # Execute the actual down script with a synthetic marked event in the same
+    # transaction. Its rejection rolls the entire fixture back on disconnect;
+    # no history is deleted and migrate's version metadata stays clean.
+    down = (MIGRATIONS / "000013_policy_cancellation.down.sql").read_text()
+    rejected = subprocess.run([*psql, "-q", "-c", "BEGIN;" + insert + down],
+                              text=True, capture_output=True, timeout=30)
+    if rejected.returncode == 0 or "cannot remove cancellation origin" not in rejected.stderr:
+        raise RuntimeError("migration 13 failed to protect recorded cancellation origins")
+    if output(*psql, "-Atc", legacy_query) != before:
+        raise RuntimeError("guarded rollback changed legacy cancellation history")
+    run(*migrate, "down", "1")
+    run(*migrate, "up", "1")  # Reapply only 13 before testing the next upgrade.
+    if output(*psql, "-Atc", legacy_query) != before:
+        raise RuntimeError("migration 13 rollback/reapply changed legacy cancellation history")
+
+
+def check_suspension_migration(psql, migrate):
+    run(*psql, "-q", "-c", """
+        WITH account AS (
+            INSERT INTO users(name,email,is_suspended,suspended_at,suspended_by_coordinator_id,suspension_reason)
+            SELECT 'Legacy suspended user','legacy-suspension@example.test',true,now(),c.user_id,repeat('s',2001)
+            FROM coordinators c WHERE c.employee_number='LEGACY-REVIEWER' RETURNING id
+        ) INSERT INTO user_suspension_history(user_id,faculty_id,changed_by_coordinator_id,was_suspended,is_suspended,reason)
+          SELECT account.id,c.faculty_id,c.user_id,false,true,repeat('s',2001)
+          FROM account,coordinators c WHERE c.employee_number='LEGACY-REVIEWER';
+    """)
+    legacy = """
+        SELECT jsonb_build_array(to_jsonb(u),to_jsonb(h))::text FROM users u
+        JOIN user_suspension_history h ON h.user_id=u.id WHERE u.email='legacy-suspension@example.test'
+    """
+    before = output(*psql, "-Atc", legacy)
+    run(*migrate, "up", "1")
+    if output(*psql, "-Atc", legacy) != before:
+        raise RuntimeError("migration 14 changed legacy suspension evidence")
+    insert = """
+        INSERT INTO user_suspension_history(user_id,faculty_id,changed_by_coordinator_id,was_suspended,is_suspended,reason)
+        SELECT user_id,faculty_id,changed_by_coordinator_id,true,false,'Reinstatement fixture'
+        FROM user_suspension_history ORDER BY id LIMIT 1;
+    """
+    for reason in ["' '", "U&'\\2003'", "repeat('x',2001)"]:
+        statement = insert.replace("'Reinstatement fixture'", reason)
+        run(*psql, "-q", "-c", f"SELECT tutti_test.expect_state('23514',$test${statement}$test$)", stdout=subprocess.DEVNULL)
+    for statement in ["UPDATE user_suspension_history SET reason='tampered'",
+                      "DELETE FROM user_suspension_history", "TRUNCATE user_suspension_history, session_status_history",
+                      "UPDATE users SET suspension_reason=U&'\\2003' WHERE email='legacy-suspension@example.test'"]:
+        run(*psql, "-q", "-c", f"SELECT tutti_test.expect_state('23514',$test${statement}$test$)", stdout=subprocess.DEVNULL)
+    session_insert = """
+        INSERT INTO session_status_history(session_id,from_status,to_status,actor_kind,changed_by_user_id,reason,cancellation_origin,suspension_history_id)
+        SELECT s.id,'REQUESTED','CANCELLED','USER',s.cancelled_by_user_id,'Account suspension','SUSPENSION',h.id
+        FROM tutoring_sessions s CROSS JOIN user_suspension_history h WHERE s.status='CANCELLED' ORDER BY s.id,h.id LIMIT 1;
+    """
+    for statement in [session_insert.replace("'SUSPENSION',h.id", "'SUSPENSION',NULL"),
+                      session_insert.replace("'SUSPENSION'", "'PARTICIPANT'")]:
+        run(*psql, "-q", "-c", f"SELECT tutti_test.expect_state('23514',$test${statement}$test$)", stdout=subprocess.DEVNULL)
+    down = (MIGRATIONS / "000014_suspension_administration.down.sql").read_text()
+    notice = """
+        INSERT INTO notifications(recipient_user_id,type,subject,body,deduplication_key)
+        SELECT id,'USER_SUSPENDED','Account notice','Generic notice','schema-suspension-guard'
+        FROM users WHERE email='legacy-suspension@example.test';
+    """
+    for marker in [notice, session_insert]:
+        rejected = subprocess.run([*psql, "-q", "-c", "BEGIN;" + marker + down], text=True, capture_output=True, timeout=30)
+        if rejected.returncode == 0 or "cannot roll back suspension administration" not in rejected.stderr:
+            raise RuntimeError("migration 14 failed to preserve decision links/notifications")
+    run(*migrate, "down", "1")
+    if output(*psql, "-Atc", legacy) != before:
+        raise RuntimeError("migration 14 rollback changed legacy evidence")
+    run(*migrate, "up", "1")
+    if output(*psql, "-Atc", legacy) != before:
+        raise RuntimeError("migration 14 reapplication changed legacy evidence")
+
+
+def check_audit_migration(psql, migrate):
+    # Existing evidence is captured at version 14, without invented metadata.
+    legacy = """SELECT jsonb_build_object(
+        'violations',(SELECT jsonb_agg(to_jsonb(v) ORDER BY id) FROM user_violations v),
+        'applications',(SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM application_status_history a),
+        'attendance',(SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM attendance_reports a),
+        'suspensions',(SELECT jsonb_agg(to_jsonb(h) ORDER BY id) FROM user_suspension_history h))::text"""
+    before = output(*psql, "-Atc", legacy)
+    run(*migrate, "up", "1")
+    upgraded = legacy.replace("to_jsonb(v)", "(to_jsonb(v)-ARRAY['actor_kind','recorded_by_user_id','home_faculty_id','cancellation_history_id'])")
+    if output(*psql, "-Atc", upgraded) != before:
+        raise RuntimeError("audit migration changed original evidence")
+    if output(*psql, "-Atc", "SELECT count(*) FROM user_violations WHERE actor_kind IS NOT NULL OR home_faculty_id IS NOT NULL OR recorded_by_user_id IS NOT NULL OR cancellation_history_id IS NOT NULL") != "0":
+        raise RuntimeError("audit migration invented legacy attribution")
+    for statement in ["UPDATE attendance_reports SET resolution_note='tampered'",
+                      "UPDATE student_verifications SET faculty_id=faculty_id",
+                      "DELETE FROM user_violations", "TRUNCATE application_status_history"]:
+        run(*psql, "-q", "-c", f"SELECT tutti_test.expect_state('23514',$test${statement}$test$)", stdout=subprocess.DEVNULL)
+    down = (MIGRATIONS / "000015_audit_preservation.down.sql").read_text()
+    evidence = """INSERT INTO tutor_offering_deactivations(offering_id,qualification_id,faculty_id,program_id,actor_kind,changed_at,reason)
+        SELECT o.id,o.qualification_id,p.faculty_id,p.id,'SYSTEM',now(),'Rollback guard fixture'
+        FROM tutor_offerings o JOIN students s ON s.user_id=o.tutor_id JOIN programs p ON p.id=s.program_id LIMIT 1;"""
+    rejected = subprocess.run([*psql,"-q","-c","BEGIN;"+evidence+down], text=True,capture_output=True,timeout=30)
+    if rejected.returncode == 0 or "rollback would remove audit evidence" not in rejected.stderr:
+        raise RuntimeError("audit rollback failed to preserve new evidence")
+    run(*migrate, "down", "1")
+    if output(*psql,"-Atc",legacy) != before:
+        raise RuntimeError("audit rollback changed legacy evidence")
+    run(*migrate, "up", "1")
+    if output(*psql,"-Atc",upgraded) != before:
+        raise RuntimeError("audit reapply changed legacy evidence")
+
+
 def main():
     network = os.environ.get("TUTTI_TEST_DOCKER_NETWORK")
     network_args = ["--network", network, "--network-alias", "schema-postgres"] if network else ["-p", "127.0.0.1::5432"]
@@ -116,16 +250,59 @@ def main():
             "disposable PostgreSQL did not start",
         )
         migrate = ["migrate", "-path", str(MIGRATIONS), "-database", url]
-        run(*migrate, "up")
+        run(*migrate, "up", "10")
+        # Migration 11 must preserve pre-existing descriptions without inventing
+        # audit events for historical writes whose sequence is unknown.
+        run(*psql, "-q", "-c", """
+            WITH faculty AS (INSERT INTO faculties(name) VALUES('Legacy issue faculty') RETURNING id),
+                 reporter AS (INSERT INTO users(name,email) VALUES('Legacy reporter','legacy-issue@example.test') RETURNING id)
+            INSERT INTO issue_reports(reporter_user_id,faculty_id,description)
+            SELECT reporter.id,faculty.id,repeat('x',2001) FROM reporter,faculty;
+        """)
+        run(*migrate, "up", "1")
+        if output(*psql, "-Atc", """
+            SELECT (SELECT count(*) FROM issue_reports WHERE description=repeat('x',2001)),
+                   (SELECT count(*) FROM issue_status_history)
+        """) != "1|0":
+            raise RuntimeError("issue upgrade changed legacy data or invented history")
+        run(*migrate, "up", "1")  # 12: test its independent rollback before 13.
+        run(*psql, "-q", "-c", """
+            BEGIN;
+            WITH reviewer AS (
+                INSERT INTO users(name,email) VALUES('Legacy reviewer','legacy-reviewer@example.test') RETURNING id
+            ) INSERT INTO coordinators(user_id,employee_number,faculty_id)
+              SELECT reviewer.id,'LEGACY-REVIEWER',f.id FROM reviewer,faculties f WHERE f.name='Legacy issue faculty';
+            UPDATE issue_reports r SET status='RESOLVED',resolution_note='Reviewed authentic legacy evidence',
+                resolved_at=statement_timestamp(),handled_by_coordinator_id=c.user_id
+              FROM coordinators c WHERE c.faculty_id=r.faculty_id AND c.employee_number='LEGACY-REVIEWER';
+            INSERT INTO issue_status_history(issue_report_id,from_status,to_status,changed_at,actor_kind,changed_by_user_id)
+              SELECT id,'OPEN',status,resolved_at,'USER',handled_by_coordinator_id FROM issue_reports;
+            COMMIT;
+        """)
+        legacy_query = """
+            SELECT (SELECT count(*) FROM issue_reports WHERE description=repeat('x',2001) AND status='RESOLVED'),
+                   (SELECT count(*) FROM issue_status_history WHERE from_status='OPEN' AND to_status='RESOLVED')
+        """
+        if output(*psql, "-Atc", legacy_query) != "1|1":
+            raise RuntimeError("legacy report could not be resolved without losing evidence")
+        # Rolling back only 12 must preserve reports and history, including the
+        # legacy text that migration 11 intentionally left NOT VALID.
+        run(*migrate, "down", "1")
+        if output(*psql, "-Atc", legacy_query) != "1|1":
+            raise RuntimeError("resolution rollback changed evidence/history")
+        run(*migrate, "up", "2")  # Reapply 12 and apply 13; test 14 separately.
         check_tables(psql, EXPECTED_TABLES)
         run(*psql, "-q", "-f", str(TESTS / "schema.sql"), stdout=subprocess.DEVNULL)
+        check_policy_cancellation_migration(psql, migrate)
+        check_suspension_migration(psql, migrate)
+        check_audit_migration(psql, migrate)
         check_concurrency(psql)
         run(*psql, "-q", "-c", "DROP SCHEMA tutti_test CASCADE", stderr=subprocess.DEVNULL)
         run(*migrate, "down", "-all")
         check_tables(psql, set())
         run(*migrate, "up")
-        check_tables(psql, EXPECTED_TABLES)
-        print("PASS: all 31 tables, integrity checks, concurrent exclusion, complete rollback and reapply.")
+        check_tables(psql, EXPECTED_TABLES | {"tutor_offering_deactivations"})
+        print("PASS: all 33 tables, legacy issue/suspension/disciplinary evidence, migrations 12/13/14/15 rollback, audit retention guards, concurrent exclusion, complete rollback and reapply.")
     except Exception:
         run("docker", "logs", "--tail", "20", container)
         raise

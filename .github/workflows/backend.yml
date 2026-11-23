@@ -99,8 +99,9 @@ jobs:
           mkdir -p "$bundle"
           go build -trimpath -o "$bundle/tutti-api" ./cmd/api
           go build -trimpath -o "$bundle/tutti-worker" ./cmd/worker
+          go build -trimpath -o "$bundle/semester-maintenance" ./cmd/semester-maintenance
           tar -czf "$RUNNER_TEMP/tutti-backend-linux-amd64.tar.gz" \
-            -C "$bundle" tutti-api tutti-worker -C "$GITHUB_WORKSPACE/backend" migrations
+            -C "$bundle" tutti-api tutti-worker semester-maintenance -C "$GITHUB_WORKSPACE/backend" migrations
 
       - name: Upload delivery archive
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
