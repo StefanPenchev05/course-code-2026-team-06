@@ -31,3 +31,9 @@ func ValidOIDCToken(value string) bool {
 	raw, err := base64.RawURLEncoding.Strict().DecodeString(value)
 	return err == nil && len(raw) == 32
 }
+
+// VerifiedIdentity is an authenticated provider subject, not a Tutti Principal.
+// Only the trusted verifier may construct it for the Stage 3 account boundary.
+type VerifiedIdentity struct{ Issuer, Subject string }
+
+var ErrOIDCAuthentication = errors.New("OIDC authentication failed")

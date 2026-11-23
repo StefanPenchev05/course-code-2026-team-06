@@ -144,11 +144,11 @@ func TestOIDCLoginInitiation(t *testing.T) {
 		if r.URL.Path != "/.well-known/openid-configuration" {
 			t.Error("unexpected provider request")
 		}
-		json.NewEncoder(w).Encode(map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "response_types_supported": []string{"code"}, "code_challenge_methods_supported": []string{"S256"}})
+		json.NewEncoder(w).Encode(map[string]any{"issuer": issuer, "authorization_endpoint": issuer + "/authorize", "token_endpoint": issuer + "/token", "jwks_uri": issuer + "/keys", "response_types_supported": []string{"code"}, "code_challenge_methods_supported": []string{"S256"}})
 	}))
 	defer mock.Close()
 	issuer = mock.URL
-	config := application.OIDCConfig{Issuer: issuer, ClientID: "tutti-backend", PublicOrigin: "http://localhost:8080", RedirectURL: "http://localhost:8080/api/v1/auth/oidc/callback", TransactionTTL: 5 * time.Minute}
+	config := application.OIDCConfig{Issuer: issuer, ClientID: "tutti-backend", ClientSecret: "synthetic-client-secret", PublicOrigin: "http://localhost:8080", RedirectURL: "http://localhost:8080/api/v1/auth/oidc/callback", TransactionTTL: 5 * time.Minute}
 	provider, err := oidcprovider.New(ctx, config)
 	if err != nil {
 		t.Fatal(err)
@@ -158,6 +158,7 @@ func TestOIDCLoginInitiation(t *testing.T) {
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 	handler.RegisterOIDC(mux, application.NewOIDCLogin(provider, store, config.TransactionTTL))
+	handler.RegisterOIDCCallback(mux, application.NewOIDCCallback(provider, store, config.Issuer))
 	out := httptest.NewRecorder()
 	mux.ServeHTTP(out, httptest.NewRequest("GET", "/api/v1/auth/oidc/login", nil))
 	if out.Code != 302 || len(out.Result().Cookies()) != 1 {
@@ -187,8 +188,8 @@ func TestOIDCLoginInitiation(t *testing.T) {
 	}
 	callback := httptest.NewRecorder()
 	mux.ServeHTTP(callback, httptest.NewRequest("GET", "/api/v1/auth/oidc/callback", nil))
-	if callback.Code != 404 {
-		t.Fatal("callback implemented unexpectedly")
+	if callback.Code != 400 {
+		t.Fatal("malformed callback not rejected")
 	}
 	mock.Close()
 	unavailable := httptest.NewRecorder()

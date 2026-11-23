@@ -48,6 +48,7 @@ func TestOIDCLoginHTTP(t *testing.T) {
 			mux := http.NewServeMux()
 			h.RegisterRoutes(mux)
 			h.RegisterOIDC(mux, login)
+			h.RegisterOIDCCallback(mux, application.NewOIDCCallback(nil, store, "https://idp.example"))
 			r := httptest.NewRequest("GET", "/api/v1/auth/oidc/login", nil)
 			r.Header.Set("Sec-Fetch-Site", "same-origin")
 			w := httptest.NewRecorder()
@@ -78,7 +79,7 @@ func TestOIDCLoginHTTP(t *testing.T) {
 				{"GET", "/api/v1/auth/oidc/login", "", "cross-site", 403},
 				{"HEAD", "/api/v1/auth/oidc/login", "", "", 405},
 				{"POST", "/api/v1/auth/oidc/login", "", "", 405},
-				{"GET", "/api/v1/auth/oidc/callback", "", "", 404},
+				{"GET", "/api/v1/auth/oidc/callback", "", "", 400},
 				{"GET", "/api/v1/auth/me", "", "", 401},
 				{"GET", "/api/v1/auth/login", "", "", 405},
 				{"POST", "/api/v1/auth/login", "", "", 403}, // Existing same-origin middleware.

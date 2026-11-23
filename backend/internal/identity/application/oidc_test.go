@@ -68,7 +68,7 @@ func TestOIDCStart(t *testing.T) {
 	}
 }
 func validOIDCConfig() OIDCConfig {
-	return OIDCConfig{Issuer: "http://localhost:8180/realms/tutti-demo", ClientID: "tutti-backend", PublicOrigin: "http://localhost:8080", RedirectURL: "http://localhost:8080/api/v1/auth/oidc/callback", TransactionTTL: 5 * time.Minute}
+	return OIDCConfig{Issuer: "http://localhost:8180/realms/tutti-demo", ClientID: "tutti-backend", ClientSecret: "synthetic-client-secret", PublicOrigin: "http://localhost:8080", RedirectURL: "http://localhost:8080/api/v1/auth/oidc/callback", TransactionTTL: 5 * time.Minute}
 }
 func TestOIDCConfig(t *testing.T) {
 	good := validOIDCConfig()

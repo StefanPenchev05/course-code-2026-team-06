@@ -10,7 +10,7 @@ Windows PowerShell commands and disposable Docker verification.
 > **Authentication requirement supersession:** Uni.lu-only institutional SSO is the approved target (FR1/FR23 Must; [D01](../requirements-decisions.md)). Local password registration/login, Argon2id and password-based coordinator activation described here are the current legacy implementation/design, not approved release authentication. Migration remains #46 and #65–#70; protocol and routes await university confirmation. Enrollment verification remains separate and required. This documentation task changes no endpoints or schema.
 
 
-The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Migration 11 adds issue history; migrations 12–14 support issue resolution, cancellation-origin audit and suspension administration without adding tables. Migration 15 adds offering-withdrawal evidence, bringing the total to 33, and protects account/disciplinary audit records. Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
+The first eight paired [migrations](../../backend/migrations/) create all 31 tables in the [approved v0.3 design](tutti-schema-v0.3.md). Migration 11 adds issue history; migrations 12–14 support issue resolution, cancellation-origin audit and suspension administration without adding tables. Migration 15 adds offering-withdrawal evidence, bringing the total to 33, and protects account/disciplinary audit records. Migration 16 adds persistent exact issuer/subject-to-user bindings, bringing the total to 34. Where v0.3 leaves columns unspecified, the migrations use the [v0.2 DBML](tutti-schema-v0.2.dbml) as a baseline. The migration database should be dedicated to Tutti. The first migration installs `btree_gist` and its rollback removes it.
 
 Migration 15 leaves legacy actor/faculty/cause metadata unknown, guards permanent
 evidence against UPDATE/DELETE/TRUNCATE, and freezes original submissions/final
@@ -48,6 +48,8 @@ rollout remains a developer-reviewed action; tests use isolated databases only.
 | 12 | Bounded resolution notes and description validation on inserts/actual changes, allowing resolution to preserve legacy evidence. |
 | 13 | Explicit participant/policy cancellation origin in session history, preserving unknown legacy origins and guarding against rollback evidence loss. |
 | 14 | Bounded suspension reasons, append-only existing account history, account notification types, and suspension cancellation origin/decision link. |
+| 15 | Append-only qualification/disciplinary/status evidence and explicit tutor-offering withdrawal history. |
+| 16 | `oidc_identities`: exact unique issuer/subject pair, one binding per user, restrictive user FK; rollback refuses populated mappings. |
 
 ## Local commands
 
@@ -245,3 +247,8 @@ Each new session needs a source slot and must fit its mode and interval and the 
 UUID primary keys default to `gen_random_uuid()` where they are not shared role IDs. Qualification records also carry the applicant student ID to let composite foreign keys enforce ownership. Activation tokens have a unique binary hash plus creation, expiry, and use times. Suspension history stores the affected home faculty, coordinator, old and new state, reason, and timestamp. Attendance uses `PENDING`, `CONFIRMED`, and `REJECTED`. Seven days is measured as 168 elapsed hours from the scheduled session end. Earlier profile-image ideas fall outside the approved 31-table model.
 
 The schema records the time anchors for retention. Rejected verifications and delivered or finally failed email content have a proposed one-year period from decision or delivery/failure. Account data has a period of up to one year after closure. Qualification evidence, session records, disciplinary records, and sponsor snapshots have a proposed three-year period from approval end, session end, semester end, and snapshot creation respectively. The eventual cleanup should review dependencies and unresolved complaints, then anonymize or remove the eligible data in dependency order under a university Data Protection Officer approved policy. Retention deletion is not automated.
+
+
+## Persistent OIDC identity bindings (Stage 3A)
+
+Migration [16](../../backend/migrations/000016_oidc_identities.up.sql) adds a separate identity-to-account mapping without changing existing users or roles. Its [rollback](../../backend/migrations/000016_oidc_identities.down.sql) refuses to remove populated mappings. The [Identity contract](../identity.md#oidc-stage-3a-persistent-identity-binding) defines the trusted provisioning/resolution boundary, exact matching, concurrency and reset behavior. Apply 16 before using those capabilities; Stage 2 callbacks and legacy authentication do not query this table yet. The schema runner validates all 34 tables and migration 16 constraints, preservation and guarded rollback/reapply with disposable data. No production migration was executed by the implementation task.

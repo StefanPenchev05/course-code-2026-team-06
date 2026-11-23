@@ -20,7 +20,7 @@ func oidcSettings(origin string) (*application.OIDCConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg := &application.OIDCConfig{PublicOrigin: origin, Issuer: os.Getenv("OIDC_ISSUER_URL"), ClientID: os.Getenv("OIDC_CLIENT_ID"), RedirectURL: os.Getenv("OIDC_REDIRECT_URL"), TransactionTTL: ttl}
+	cfg := &application.OIDCConfig{PublicOrigin: origin, Issuer: os.Getenv("OIDC_ISSUER_URL"), ClientID: os.Getenv("OIDC_CLIENT_ID"), ClientSecret: os.Getenv("OIDC_CLIENT_SECRET"), RedirectURL: os.Getenv("OIDC_REDIRECT_URL"), TransactionTTL: ttl}
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
