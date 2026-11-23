@@ -44,6 +44,8 @@ type bookingFixture struct {
 	clock   atomic.Int64
 	start   time.Time
 	cookie  map[int]*http.Cookie
+	auth *identityhttp.Handler
+	redis *redis.Client
 }
 
 const (
@@ -99,6 +101,7 @@ func newBookingFixture(t *testing.T) *bookingFixture {
 	f.service = scheduling.NewBooking(repo, func() time.Time { return time.UnixMicro(f.clock.Load()) })
 	mux := http.NewServeMux()
 	auth := identityhttp.New(idService, origin, true, slog.Default())
+	f.auth, f.redis = auth, client
 	auth.RegisterRoutes(mux)
 	schedulinghttp.NewBooking(f.service, slog.Default()).RegisterRoutes(mux, auth)
 	feedbackService := feedback.New(feedbackpg.New(db, feedbackpg.Dependencies{

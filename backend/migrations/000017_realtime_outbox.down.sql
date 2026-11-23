@@ -16,4 +16,5 @@ DROP FUNCTION realtime_availability_change();
 DROP FUNCTION realtime_session_change();
 DROP FUNCTION enqueue_realtime_event(text,uuid);
 DROP TABLE realtime_events;
+DROP FUNCTION guard_realtime_payload();
 COMMIT;

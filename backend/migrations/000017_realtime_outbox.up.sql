@@ -2,10 +2,10 @@ BEGIN;
 
 -- Dedicated invalidation outbox, independent of email delivery and business history.
 CREATE TABLE realtime_events (
-    id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    id uuid PRIMARY KEY DEFAULT gen_random_uuid() CHECK(id<>'00000000-0000-0000-0000-000000000000'),
     producer_xid xid8 NOT NULL DEFAULT pg_current_xact_id(),
     event_type text NOT NULL CHECK (event_type IN ('booking.changed','availability.changed')),
-    entity_id uuid NOT NULL,
+    entity_id uuid NOT NULL CHECK(entity_id<>'00000000-0000-0000-0000-000000000000'),
     occurred_at timestamptz NOT NULL DEFAULT statement_timestamp() CHECK (isfinite(occurred_at)),
     next_attempt_at timestamptz NOT NULL DEFAULT statement_timestamp(),
     attempt_count integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
@@ -19,6 +19,18 @@ CREATE TABLE realtime_events (
 );
 CREATE INDEX realtime_events_pending_idx ON realtime_events(next_attempt_at,id)
     WHERE dispatched_at IS NULL;
+
+CREATE FUNCTION guard_realtime_payload() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    IF ROW(NEW.id,NEW.producer_xid,NEW.event_type,NEW.entity_id,NEW.occurred_at)
+       IS DISTINCT FROM ROW(OLD.id,OLD.producer_xid,OLD.event_type,OLD.entity_id,OLD.occurred_at) THEN
+        RAISE check_violation USING MESSAGE='realtime event identity and payload are immutable';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+CREATE TRIGGER realtime_payload_immutable BEFORE UPDATE ON realtime_events
+FOR EACH ROW EXECUTE FUNCTION guard_realtime_payload();
 
 -- No network IO in producer transactions. Multiple slot/reservation writes in
 -- the SAME transaction coalesce while retaining the first stable event UUID.

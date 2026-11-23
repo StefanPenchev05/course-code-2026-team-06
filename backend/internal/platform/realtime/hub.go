@@ -76,7 +76,11 @@ var _ events.Publisher = (*Hub)(nil)
 func (h *Hub) Resync() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for _, connections := range h.users { for c := range connections { c.stop(websocket.StatusGoingAway) } }
+	for _, connections := range h.users {
+		for c := range connections {
+			c.stop(websocket.StatusGoingAway)
+		}
+	}
 }
 
 func NewHub(config Config) (*Hub, error) {

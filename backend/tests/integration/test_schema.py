@@ -279,6 +279,43 @@ def check_oidc_binding_migration(psql, migrate):
         raise RuntimeError("OIDC reapply changed existing accounts/history")
 
 
+def check_realtime_migration(psql, migrate):
+    existing = EXPECTED_TABLES | {"tutor_offering_deactivations", "oidc_identities"}
+    def snapshot():
+        return {table: output(*psql, "-Atc", f"SELECT md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]')::text) FROM {table} t")
+                for table in sorted(existing)}
+    before = snapshot()
+    run(*migrate, "up", "1")
+    check_tables(psql, existing | {"realtime_events"})
+    if snapshot() != before or output(*psql, "-Atc", "SELECT count(*) FROM realtime_events") != "0":
+        raise RuntimeError("realtime migration changed/backfilled existing records")
+    run(*psql, "-q", "-c", """
+        BEGIN;
+        INSERT INTO availability_slots(tutor_id,starts_at,ends_at,allowed_mode)
+          VALUES(tutti_test.fixture_id(10),'2099-01-01 09:00Z','2099-01-01 10:00Z','ONLINE');
+        INSERT INTO availability_slots(tutor_id,starts_at,ends_at,allowed_mode)
+          VALUES(tutti_test.fixture_id(10),'2099-01-02 09:00Z','2099-01-02 10:00Z','ONLINE');
+        DO $$ BEGIN IF (SELECT count(*) FROM realtime_events) <> 1 THEN
+          RAISE EXCEPTION 'same-transaction invalidations did not coalesce'; END IF; END $$;
+        ROLLBACK;
+    """)
+    if snapshot() != before or output(*psql, "-Atc", "SELECT count(*) FROM realtime_events") != "0":
+        raise RuntimeError("rolled-back availability leaked a realtime event")
+    run(*psql, "-q", "-c", "SELECT enqueue_realtime_event('booking.changed',tutti_test.fixture_id(10))")
+    run(*psql, "-q", "-c", "SELECT tutti_test.expect_state('23514',$test$UPDATE realtime_events SET entity_id=tutti_test.fixture_id(11)$test$)")
+    down = (MIGRATIONS / "000017_realtime_outbox.down.sql").read_text()
+    rejected = subprocess.run([*psql, "-q", "-c", down], text=True, capture_output=True, timeout=30)
+    if rejected.returncode == 0 or "drain pending realtime events" not in rejected.stderr:
+        raise RuntimeError("realtime rollback did not protect pending events")
+    # Synthetic fixture outbox only, inside this runner's disposable container.
+    run(*psql, "-q", "-c", "DELETE FROM realtime_events")
+    run(*migrate, "down", "1")
+    check_tables(psql, existing)
+    if snapshot() != before:
+        raise RuntimeError("realtime rollback changed business data")
+    run(*migrate, "up", "1")
+
+
 def main():
     network = os.environ.get("TUTTI_TEST_DOCKER_NETWORK")
     network_args = ["--network", network, "--network-alias", "schema-postgres"] if network else ["-p", "127.0.0.1::5432"]
@@ -347,13 +384,16 @@ def main():
         check_suspension_migration(psql, migrate)
         check_audit_migration(psql, migrate)
         check_oidc_binding_migration(psql, migrate)
+        check_realtime_migration(psql, migrate)
         check_concurrency(psql)
+        # Only this disposable runner generated these ephemeral invalidations.
+        run(*psql, "-q", "-c", "DELETE FROM realtime_events")
         run(*psql, "-q", "-c", "DROP SCHEMA tutti_test CASCADE", stderr=subprocess.DEVNULL)
         run(*migrate, "down", "-all")
         check_tables(psql, set())
         run(*migrate, "up")
-        check_tables(psql, EXPECTED_TABLES | {"tutor_offering_deactivations", "oidc_identities"})
-        print("PASS: all 34 tables, OIDC binding constraints/preservation/guarded rollback/reapply, legacy issue/suspension/disciplinary evidence, migrations 12/13/14/15 rollback, audit retention guards, concurrent exclusion, complete rollback and reapply.")
+        check_tables(psql, EXPECTED_TABLES | {"tutor_offering_deactivations", "oidc_identities", "realtime_events"})
+        print("PASS: all 35 tables, realtime transactional capture/coalescing/rollback/reapply, OIDC binding constraints/preservation/guarded rollback/reapply, legacy issue/suspension/disciplinary evidence, migrations 12/13/14/15 rollback, audit retention guards, concurrent exclusion, complete rollback and reapply.")
     except Exception:
         run("docker", "logs", "--tail", "20", container)
         raise

@@ -227,6 +227,11 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 			logger.Error("Realtime shutdown timed out")
 		}
 	}()
+	stopRealtime, err := startRealtime(ctx, pool, client, hub, tutoringService, mux, identity, logger)
+	if err != nil {
+		return err
+	}
+	defer stopRealtime()
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", "127.0.0.1:8080"),
 		Handler:           apiHandler(mux, realtime.NewHandler(hub, identity, origin), 10*time.Second),
