@@ -25,7 +25,9 @@ export function errorMessage(error: unknown, overrides: Partial<Record<number, s
   if (override) return override;
   // 422 messages from the API describe which rule failed, so show them.
   if (error.status === 422 && error.message) {
-    return error.message.charAt(0).toUpperCase() + error.message.slice(1);
+    // Identity prefixes rule messages with "invalid input: "; drop it.
+    const text = error.message.replace(/^invalid input:\s*/i, '');
+    return text.charAt(0).toUpperCase() + text.slice(1);
   }
   return DEFAULT_MESSAGES[error.status] ?? GENERIC;
 }

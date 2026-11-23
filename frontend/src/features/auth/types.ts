@@ -18,3 +18,21 @@ export interface CurrentUser {
 export function hasRole(user: CurrentUser | null, role: Role): boolean {
   return user !== null && user.roles.includes(role);
 }
+
+/** Body of POST /auth/register (and POST /auth/resubmit-verification, without password). */
+export interface StudentDetails {
+  name: string;
+  email: string;
+  student_number: string;
+  program_id: string;
+}
+
+export interface RegistrationInput extends StudentDetails {
+  password: string;
+}
+
+/** 201 response of POST /auth/register. Registering does not log the student in. */
+export interface VerificationCreated {
+  verification_id: string;
+  verification_status: VerificationStatus;
+}

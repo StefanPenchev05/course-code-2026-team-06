@@ -3,6 +3,7 @@ import { ComingSoonPage } from '../pages/ComingSoonPage';
 import { HomePage } from '../pages/HomePage';
 import { LoginPage } from '../pages/LoginPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
+import { RegisterPage } from '../pages/RegisterPage';
 import { RouteErrorPage } from '../pages/RouteErrorPage';
 import { AppLayout } from './AppLayout';
 import { PublicOnly, RequireAuth, RequireRole } from './guards';
@@ -21,7 +22,7 @@ export const routes: RouteObject[] = [
         element: <PublicOnly />,
         children: [
           { path: 'login', element: <LoginPage /> },
-          { path: 'register', element: <ComingSoonPage title="Create an account" issue={28} /> },
+          { path: 'register', element: <RegisterPage /> },
         ],
       },
       {
