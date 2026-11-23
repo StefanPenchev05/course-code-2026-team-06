@@ -173,7 +173,7 @@ remain unchanged. Worker SMTP setup remains independent of realtime delivery.
 Runtime database writers must be permitted to INSERT the outbox and read the
 capture functions' referenced scheduling/tutor tables. API dispatchers also need
 SELECT/UPDATE on the outbox. Do not expose PostgreSQL or the Redis pub/sub/watch
-namespace to browser clients. Production Redis ACLs must cover the required
+namespace to browser clients. Redis pub/sub is global across Redis database numbers: use a Redis instance dedicated to this Tutti deployment until #89 adds explicit deployment channel namespacing. Separate database indexes alone do not isolate pub/sub channels. Production Redis ACLs must cover the required
 pub/sub and sorted-set/Lua operations, alongside existing session commands.
 
 No automatic retention deletion runs in this issue. Monitor pending count, oldest

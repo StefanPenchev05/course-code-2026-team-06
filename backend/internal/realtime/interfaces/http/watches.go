@@ -29,12 +29,12 @@ func RegisterWatches(mux *http.ServeMux, auth *identityhttp.Handler, routing *ap
 			fail(400)
 			return
 		}
-		var input struct {
+		var input *struct {
 			TutorID string `json:"tutor_id"`
 		}
 		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024))
 		decoder.DisallowUnknownFields()
-		if decoder.Decode(&input) != nil {
+		if decoder.Decode(&input) != nil || input == nil {
 			fail(400)
 			return
 		}

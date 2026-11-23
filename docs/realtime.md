@@ -143,7 +143,7 @@ all six event types, repeated event IDs and invalid/unknown fields. Gateway test
 exercise explicit user/faculty subscription attempts; all client application
 messages are rejected, including binary messages, empty messages and JSON
 `subscribe` commands. Only standard WebSocket ping/pong/close control frames are
-supported. No subscription registry exists in this stage.
+supported. No WebSocket subscription-message protocol exists; #87 registers view watches through authenticated HTTP.
 
 Future clients should keep a bounded recent-ID cache, ignore duplicates, safely
 ignore unknown event types on version 1 and conservatively refetch visible
@@ -215,50 +215,22 @@ interval. Do not add wildcard origins, trust proxy-supplied user IDs, or move
 session credentials to a URL. Reconnect/refetch remains mandatory behind proxies
 and across API restarts. No frontend/proxy configuration is added in this task.
 
-## Foundation integration requirements (implemented in #87)
+## Scheduling publication (#87)
 
-The following foundation handoff is fulfilled by the [current scheduling delivery](realtime-delivery.md). Transaction capture uses shared SQL enqueue triggers, and public-view watches now use an authenticated HTTP endpoint with shared Redis leases; the WebSocket protocol itself stays unchanged. The list records the original boundaries for future publishers.
+[Scheduling delivery](realtime-delivery.md) is now implemented. Migration 17
+captures invalidations transactionally; API dispatchers claim committed events
+and publish their stable UUIDs through shared Redis fanout. Every API reloads the
+event, resolves current recipients through Scheduling's published read port and
+uses `Publisher.Publish(context.Context, Event, []string, Authorize)` with current
+resource authorization. Expiration workers need only their existing PostgreSQL
+write path. Email outbox rows remain independent.
 
-1. Depend on `internal/realtime/application.Publisher`, not the hub or HTTP
-   handler. The implemented method is:
-   `Publish(context.Context, Event, []string, Authorize) error`.
-   `Authorize` takes `(context.Context, identity/domain.Principal, Event)` and
-   returns `(bool, error)`. Bootstrap injects the concrete hub only into a
-   dispatcher/delivery adapter. No business module imports platform transport.
-2. Add a **dedicated transactional event outbox** via a new reversible migration.
-   Persist a stable event UUID, type, minimal entity ID, occurrence time and the
-   routing information needed to resolve current recipients, atomically with
-   each business mutation/history/email write. Rollback leaves no event. Do not
-   publish directly inside a transaction or reuse the email delivery queue.
-3. Dispatch committed rows asynchronously. Resolve current student/tutor and
-   authorized coordinator candidate IDs server-side through owning application
-   ports. Supply a context-aware, concurrency-safe resource policy that binds the
-   exact event type/entity to each fresh principal's authorized HTTP projection.
-   Candidate IDs alone are insufficient; generic `return true` policies are for
-   isolated transport tests only. Missing/deleted/forbidden resources must fail
-   safely. Avoid retaining a database transaction inside an asynchronous closure.
-4. Booking transitions must invalidate the participants' session views and the
-   permitted tutor availability projection; public availability watchers must
-   never receive booking identifiers. No public-watcher subscription protocol
-   exists yet. Add server-authorized watch registration/resource validation before
-   promising watcher delivery, or explicitly limit #87 to owning users and record
-   the remaining discovery subscription work.
-5. Cover request, accept, decline, cancel, expiry, completion, attendance
-   correction, policy/suspension cancellation, recurrence/exception/slot changes
-   and reservation release. Mutations in Coordination and the separate worker
-   need the same transaction-bound event port, without bypassing module locks.
-6. Select a worker-to-API path before enabling publication: a durable outbox plus
-   transient cross-process fanout (for example Redis pub/sub) with **every API
-   instance** receiving relevant committed events. One global queue consumer or
-   an in-process hub alone cannot deliver to sockets hosted on other processes.
-   Keep stable IDs through retries. Multi-instance transport wiring/hardening is
-   coordinated with #89; never claim durability from pub/sub or delivery receipts
-   from this hub. `Publish` returning nil means best-effort queueing only.
-7. Recheck tests for rollback/no publication, retries/stable IDs, concurrent
-   booking, expiration in the worker executable, released reservations, stale
-   recipients/faculty changes and disconnected/slow clients. Database commits
-   must succeed independently of live consumers. React/browser acceptance still
-   requires #90–#94, including mandatory reconnect refetch.
+Public availability viewers register authorized, expiring watches through HTTP;
+these leases are shared across API instances. Client WebSocket application
+messages remain unsupported. The delivery guide defines the new watch endpoint,
+claim/retry semantics, migration ordering, rollback guard, tests and exact handoff
+for frontend #90 and reliability #89. Other producers (#88) must preserve these
+post-commit, minimal-payload and server-owned authorization boundaries.
 
 ## Verification and remaining review
 
@@ -282,7 +254,7 @@ endpoint. Scheduling publication, rollback/retry and worker fanout now have sepa
 still needs backend/frontend owner review. No GitHub issue is closed by these
 changes.
 
-Implementation file inventory for this foundation:
+Implementation file inventory for the original #85/#86 foundation (see [delivery](realtime-delivery.md) for #87 additions):
 
 - Contract: `backend/internal/realtime/application/event.go`, `event_test.go`
   and `testdata/protocol.json` in that directory.

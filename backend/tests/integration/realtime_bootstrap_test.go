@@ -20,6 +20,12 @@ import (
 func TestRealtimeProductionBootstrap(t *testing.T) {
 	isolatedRealtimeDatabase(t)
 	f := newBookingFixture(t)
+	// This test uses the production clock, unlike the deterministic booking
+	// fixture. Supply a moving calendar/window so it also works after 2027.
+	now := time.Now().UTC().Truncate(time.Hour)
+	f.exec(t, "DELETE FROM availability_slots") // fresh isolated synthetic fixture only
+	f.exec(t, "INSERT INTO semesters(id,name,starts_at,ends_at) VALUES($1,'Bootstrap realtime term',$2,$3)", fixture(87002), now.Add(-24*time.Hour), now.Add(31*24*time.Hour))
+	f.exec(t, "INSERT INTO availability_slots(id,tutor_id,starts_at,ends_at,allowed_mode) VALUES($1,$2,$3,$4,'ONLINE')", fixture(bookingSlot), fixture(bookingTutor), now.Add(72*time.Hour), now.Add(120*time.Hour))
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -70,7 +76,9 @@ func TestRealtimeProductionBootstrap(t *testing.T) {
 	}
 	defer socket.CloseNow()
 	stream := realtimeRead(socket)
-	payload, _ := json.Marshal(f.payload(100*time.Hour, bookingOffer, bookingSlot))
+	input := f.payload(100*time.Hour, bookingOffer, bookingSlot)
+	input["starts_at"] = now.Add(96 * time.Hour).Format(time.RFC3339)
+	payload, _ := json.Marshal(input)
 	request, _ := http.NewRequest("POST", base+"/api/v1/sessions", bytes.NewReader(payload))
 	request.AddCookie(cookie)
 	request.Header.Set("Origin", origin)
