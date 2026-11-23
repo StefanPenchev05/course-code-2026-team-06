@@ -28,14 +28,14 @@ The updated issue and course-demo instruction supersede the official-institution
 | JWKS endpoint | `http://localhost:8180/realms/tutti-demo/protocol/openid-connect/certs` |
 | Client | `tutti-backend`, confidential OIDC, client-secret authentication |
 | Allowed flow | Authorization Code with mandatory S256 PKCE; no implicit flow, direct/password grants, service accounts, device or CIBA grants |
-| Exact callback | `http://localhost:8080/api/v1/auth/oidc/callback` — **proposed for #65, currently absent** |
+| Exact callback | `http://localhost:8080/api/v1/auth/oidc/callback` — implemented for Stage 2 protocol verification only |
 | Browser origin | Exactly `http://localhost:8080`; no wildcard origins or redirects |
 | OIDC scopes | Request `openid profile email`; no application-role mapping |
 | Secrets | Local `KEYCLOAK_ADMIN_USERNAME`, `KEYCLOAK_ADMIN_PASSWORD`, `TUTTI_OIDC_CLIENT_SECRET`; no defaults |
 | Storage | Separate `keycloak_demo_data` named volume, Keycloak embedded H2 `dev-file`; no connection to Tutti PostgreSQL or Redis |
 | Restart | `restart: "no"`; explicitly start/stop the optional demo. Health check probes management readiness internally. |
 
-Use `localhost`, not `127.0.0.1`, in browser/provider URLs: they are different issuer/origin strings. The supported future development layout is **Go running on the host** at localhost:8080 and Keycloak in Docker on localhost:8180. The configured hostname keeps discovery, browser redirects and future Go validation consistent.
+Use `localhost`, not `127.0.0.1`, in browser/provider URLs: they are different issuer/origin strings. The supported development layout is **Go running on the host** at localhost:8080 and Keycloak in Docker on localhost:8180. The configured hostname keeps discovery, browser redirects and future Go validation consistent.
 
 Inside a normal bridged Go container, `localhost` refers to that container, not Keycloak. Do not replace the configured issuer with `http://keycloak:8080`, rewrite token issuers or skip validation. A future containerized Go setup must provide a shared reachable hostname/routing contract, or explicitly use host networking (Linux, or Docker Desktop with host networking enabled) so the same localhost issuer is reachable. That backend deployment is not provisioned by this issue. Other containers on the Compose network can access Keycloak internally; loopback publication is not isolation from those containers or other local users.
 
@@ -108,9 +108,9 @@ The snippet reads the simple unquoted file generated above; it is not a general 
 
 The script checks the import file, exact callback/origin, confidential code flow, S256, disabled grants and absence of seeded credentials. Live checks validate issuer, endpoints, JWKS, a no-session code-flow preflight (`login_required`), and rejection of a disallowed callback, missing PKCE and implicit response. With `--admin`, it checks persisted client flags and the injected client secret and confirms the backend client's password grant is rejected. The built-in `admin-cli` master-realm password grant used only for maintenance is distinct from the disabled application password grant. Admin tokens remain in process memory and are never printed/saved.
 
-Use the console's **Clients → tutti-backend** to inspect settings manually. A callback attempt currently fails to connect to Tutti or returns 404 because #65 has not implemented it; this is not a provider import failure.
+Use the console's **Clients → tutti-backend** to inspect settings manually. With the API running and OIDC enabled, the Stage 2 callback now verifies the code/ID token and returns safe development JSON. It creates no Tutti account or application session. Without OIDC enabled the route is absent.
 
-## Go/Redis integration plan — only Stage 1 initiation now implemented
+## Go/Redis integration plan — Stages 1, 2 and internal 3A implemented; 3B pending
 
 1. Browser asks Tutti to sign in. Go creates single-use state, nonce and a PKCE verifier/challenge, retaining correlation securely server-side.
 2. Browser redirects to the exact issuer's authorization endpoint with `response_type=code`, `scope=openid profile email` and S256 challenge. Keycloak handles credentials and the IdP browser session.
@@ -118,7 +118,7 @@ Use the console's **Clients → tutti-backend** to inspect settings manually. A 
 4. Go validates signature using JWKS, expected issuer/audience, nonce, expiration and other protocol checks using maintained OIDC libraries. Bind the stable `(issuer, sub)` to a Tutti account through the approved linking workflow; never merge or elevate accounts solely by email or IdP role.
 5. Go checks current Tutti permissions, enrollment approval and suspension, then issues its existing opaque HttpOnly application cookie backed by Redis. Tokens must not go into browser storage or replace PostgreSQL authorization checks. Tutti logout revokes its Redis session; IdP-session logout is a separate behavior to define/test.
 
-Issue #46 left the [Identity guide](identity.md), [Identity service](../backend/internal/identity/application/service.go), [cookie handler](../backend/internal/identity/interfaces/http/handler.go) and [Redis store](../backend/internal/identity/infrastructure/redis/session_store.go) were unchanged by Issue #46. Issue #65 Stage 1 now adds optional Go login initiation only; see [its configuration and transaction contract](identity.md#oidc-stage-1-login-initiation-issue-65). The callback, token verifier, database binding and frontend login remain unimplemented. #66–#70 retain their separate account-linking, migration, UI, security and documentation work.
+The [Identity guide](identity.md), [Identity service](../backend/internal/identity/application/service.go), [cookie handler](../backend/internal/identity/interfaces/http/handler.go) and [Redis store](../backend/internal/identity/infrastructure/redis/session_store.go) were unchanged by Issue #46. Issue #65 now adds optional Go login initiation and Stage 2 callback/exchange/ID-token verification; see [its configuration and transaction contract](identity.md#oidc-stage-1-login-initiation-issue-65). Stage 3A now provides internal persistent identity binding/resolution; callback integration, Tutti application sessions and frontend login remain unimplemented. #66–#70 retain their separate account-linking, migration, UI, security and documentation work.
 
 ## Stop, restart and reset
 
@@ -150,7 +150,7 @@ This is HTTP-only, `start-dev`, with local H2 storage and no production availabi
 - **Missing variable:** generate/provide all three values; never add a real default to the import or committed Compose file.
 - **Realm/client edits ignored:** an existing volume retains the previous import; use the targeted reset only for disposable data.
 - **Issuer mismatch/unreachable Go container:** use the exact supported host layout; do not disable protocol validation or switch between localhost, 127.0.0.1 and Docker service names casually.
-- **No Tutti session after Keycloak login:** expected until #65. This task provisions an IdP, not end-to-end application authentication or a demonstrated multi-client SSO journey.
+- **No Tutti session after Keycloak login:** expected until Stage 3B. Stage 2 verifies only the provider identity; it does not establish Tutti authorization or demonstrate multi-client SSO.
 
 Implementation follows Keycloak's official [container guide](https://www.keycloak.org/server/containers), [startup import/environment placeholder guide](https://www.keycloak.org/server/importExport) and [hostname guide](https://www.keycloak.org/server/hostname). The version is pinned for reproducibility; review upstream releases before future upgrades and retest imports/flows.
 
@@ -166,3 +166,23 @@ Verified with Docker on the development machine using an isolated `tutti-sso-iss
 - Verification containers, dedicated volume/network and temporary credential file were removed afterward. The demo is not left running.
 
 Not executed: a synthetic user's interactive login, multi-client browser SSO demonstration, Go callback/token validation/Redis-session creation, real Uni.lu authentication, or production security validation. These results establish local provider infrastructure only. Backend regression suites were not run because backend code/configuration was not changed.
+
+## Stage 2 callback configuration
+
+The Go API now supports the [Stage 2 callback and verification contract](identity.md#oidc-stage-2-callback-and-verified-provider-identity). In its private shell configuration, set `OIDC_CLIENT_SECRET` to **the same value** as this demo's `TUTTI_OIDC_CLIENT_SECRET`; do not generate a different API secret. Loading `.env.sso` into Compose does not export it into a separate Go process. On POSIX shells, after privately loading the local values, use `export OIDC_CLIENT_SECRET="$TUTTI_OIDC_CLIENT_SECRET"`; PowerShell uses `$env:OIDC_CLIENT_SECRET = $env:TUTTI_OIDC_CLIENT_SECRET`. Never print the secret or put it in client-side configuration.
+
+The imported client uses RS256 ID tokens by default, which is the backend's explicit signing policy. Browser login must use the exact configured localhost issuer and callback; discovery, token and JWKS validation are not disabled for this HTTP loopback demo. Synthetic sign-in now ends with `oidc_identity_verified` development JSON and temporary-cookie clearing, with no tokens/claims in the response. Stage 3A now stores trusted internal bindings; integrating those bindings into callback login and creating Tutti sessions remain Stage 3B. The Issue #46 verification record above describes its earlier infrastructure-only scope; Stage 2 results are recorded separately in the task handoff.
+
+### Stage 2 verification record — 2026-11-23
+
+The task's mock RSA/JWKS provider tests and real Redis suite passed, including signed callback verification, wrong-browser/replay/expiry protection and concurrent single-use exchange. A separate disposable Compose project ran Keycloak 26.8.2, PostgreSQL and Redis plus the actual Go API. Because the normal API port was already in use, the isolated client was given an exact callback on a free localhost port without changing the committed realm. One synthetic user's HTML login-form flow completed confidential code exchange, original S256 verifier and RS256 ID-token verification, returned the safe success JSON and cleared the temporary cookie. `/api/v1/auth/me` remained 401 and PostgreSQL `users` remained empty. Test containers, volumes and the API were removed afterward; no real university identity was used.
+
+This live probe used a Python cookie jar configured to model browsers' Secure-cookie exception **only for HTTP localhost**. Its initial ordinary-cookie-jar runs failed in Keycloak with “cookie not found,” before reaching the Go callback; the corrected probe passed. This is an HTTP/form smoke test, not a browser compatibility or multi-client SSO test. No issuer, token-validation or server cookie settings were weakened. Browsers/clients differ in localhost Secure-cookie handling; see the [cookie behavior reference](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Cookies). Use a compatible development browser or properly configured local HTTPS when a client does not implement that exception. Do not extend the loopback exception to remote hosts.
+
+## Stage 3A: synthetic account provisioning and realm reset
+
+The [persistent binding contract](identity.md#oidc-stage-3a-persistent-identity-binding) adds one exact `(issuer, subject)` mapping per existing Tutti user via migration 16. Internal resolution reads current Tutti permissions; an independent trusted provisioning capability creates mappings. Integration tests provision existing synthetic users and bind explicitly verified fixture identities. There is **no public linking endpoint or production provisioning command** in this stage. Ordinary Keycloak users cannot choose arbitrary Tutti IDs; neither email/name matching nor Keycloak roles establish ownership or university approval.
+
+Changing a synthetic user's email or display name does not break its mapping. Resetting/reimporting Keycloak can change the subject even if the username/email is identical. Such an identity is unknown until a separately approved trusted recovery workflow proves ownership; existing bindings are never overwritten automatically. The mapping's restrictive user FK and guarded rollback protect against silently forgetting associations. It stores no tokens or passwords.
+
+The current browser callback remains Stage 2's protocol-only development response. Stage 3B must resolve the successful verified identity through the reader capability and then implement separately authorized session establishment; it must not expose the provisioning writer or auto-register unknown users. Pending/rejected students stay restricted, active tutor and coordinator permissions come from Tutti's database, and suspended/closed users cannot resolve for login. No new environment variable, Keycloak role mapper or synthetic password is needed for this persistence stage.

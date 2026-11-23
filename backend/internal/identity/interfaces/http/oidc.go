@@ -33,11 +33,7 @@ func (h *Handler) RegisterOIDC(mux *http.ServeMux, login *application.OIDCLogin)
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "OIDC authentication unavailable"})
 			return
 		}
-		cookie := "tutti_oidc_tx"
-		if h.secure {
-			cookie = "__Host-tutti_oidc_tx"
-		}
-		http.SetCookie(w, &http.Cookie{Name: cookie, Value: result.BrowserBinding, Path: "/", Secure: h.secure, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(result.TTL.Seconds())})
+		http.SetCookie(w, &http.Cookie{Name: h.oidcCookieName(), Value: result.BrowserBinding, Path: "/", Secure: h.secure, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(result.TTL.Seconds())})
 		http.Redirect(w, r, result.URL, http.StatusFound)
 	})
 }

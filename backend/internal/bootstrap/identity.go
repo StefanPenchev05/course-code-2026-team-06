@@ -154,6 +154,7 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 		}
 		login := application.NewOIDCLogin(provider, sessionredis.NewOIDCTransactions(client), oidcConfig.TransactionTTL)
 		identity.RegisterOIDC(mux, login)
+		identity.RegisterOIDCCallback(mux, application.NewOIDCCallback(provider, sessionredis.NewOIDCTransactions(client), oidcConfig.Issuer))
 	}
 
 	catalogService := catalog.New(catalogpostgres.New(pool))

@@ -24,7 +24,7 @@ func TestDiscoveryAndAuthorization(t *testing.T) {
 	}))
 	defer server.Close()
 	issuer = server.URL
-	cfg := application.OIDCConfig{Issuer: issuer, ClientID: "tutti-backend", RedirectURL: "http://localhost:8080/api/v1/auth/oidc/callback", PublicOrigin: "http://localhost:8080", TransactionTTL: 5 * time.Minute}
+	cfg := application.OIDCConfig{Issuer: issuer, ClientID: "tutti-backend", ClientSecret: "synthetic-client-secret", RedirectURL: "http://localhost:8080/api/v1/auth/oidc/callback", PublicOrigin: "http://localhost:8080", TransactionTTL: 5 * time.Minute}
 	p, err := New(context.Background(), cfg)
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestInvalidMetadata(t *testing.T) {
 					http.Redirect(w, r, "https://other.example/discovery", 302)
 					return
 				}
-				data := map[string]any{"issuer": address, "authorization_endpoint": address + "/auth", "code_challenge_methods_supported": []string{"S256"}, "response_types_supported": []string{"code"}}
+				data := map[string]any{"issuer": address, "authorization_endpoint": address + "/auth", "token_endpoint": address + "/token", "jwks_uri": address + "/keys", "code_challenge_methods_supported": []string{"S256"}, "response_types_supported": []string{"code"}}
 				switch scenario {
 				case "no S256":
 					data["code_challenge_methods_supported"] = []string{"plain"}
@@ -83,7 +83,7 @@ func TestInvalidMetadata(t *testing.T) {
 			}))
 			defer server.Close()
 			address = server.URL
-			cfg := application.OIDCConfig{Issuer: address, ClientID: "client", RedirectURL: "http://localhost:8080/api/v1/auth/oidc/callback", PublicOrigin: "http://localhost:8080", TransactionTTL: 5 * time.Minute}
+			cfg := application.OIDCConfig{Issuer: address, ClientID: "client", ClientSecret: "synthetic-client-secret", RedirectURL: "http://localhost:8080/api/v1/auth/oidc/callback", PublicOrigin: "http://localhost:8080", TransactionTTL: 5 * time.Minute}
 			if _, err := New(context.Background(), cfg); err == nil {
 				t.Fatal("accepted invalid metadata")
 			}

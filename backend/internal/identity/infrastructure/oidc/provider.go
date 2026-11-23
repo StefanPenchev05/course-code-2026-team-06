@@ -1,5 +1,5 @@
 // Package oidc discovers the configured provider and builds authorization redirects.
-// It does not exchange codes or verify ID tokens in Stage 1.
+// Stage 2 exchanges codes and verifies provider identity without creating Tutti accounts.
 package oidc
 
 import (
@@ -15,8 +15,10 @@ import (
 )
 
 type Provider struct {
-	config application.OIDCConfig
-	client *http.Client
+	config   application.OIDCConfig
+	client   *http.Client
+	protocol *coreoidc.Provider
+	verifier *coreoidc.IDTokenVerifier
 }
 
 func New(ctx context.Context, c application.OIDCConfig) (*Provider, error) {
@@ -24,9 +26,12 @@ func New(ctx context.Context, c application.OIDCConfig) (*Provider, error) {
 		return nil, err
 	}
 	p := &Provider{config: c, client: &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("OIDC discovery redirect rejected") }}}
-	if _, err := p.discover(ctx); err != nil {
+	protocol, err := p.discover(ctx)
+	if err != nil {
 		return nil, errors.New("OIDC discovery failed")
 	}
+	p.protocol = protocol
+	p.verifier = protocol.VerifierContext(coreoidc.ClientContext(context.Background(), p.client), &coreoidc.Config{ClientID: c.ClientID, SupportedSigningAlgs: []string{coreoidc.RS256}})
 	return p, nil
 }
 
@@ -52,6 +57,20 @@ func (p *Provider) discover(ctx context.Context) (*coreoidc.Provider, error) {
 	issuer, _ := application.OIDCURL(p.config.Issuer)
 	if endpoint.Scheme != issuer.Scheme || endpoint.Host != issuer.Host {
 		return nil, errors.New("authorization endpoint must share the configured issuer origin")
+	}
+	// Token/JWKS URLs are trusted only on the exact configured issuer origin.
+	var endpoints struct {
+		Token string `json:"token_endpoint"`
+		Keys  string `json:"jwks_uri"`
+	}
+	if err := provider.Claims(&endpoints); err != nil {
+		return nil, err
+	}
+	for _, raw := range []string{endpoints.Token, endpoints.Keys} {
+		u, err := application.OIDCURL(raw)
+		if err != nil || u.Scheme != issuer.Scheme || u.Host != issuer.Host {
+			return nil, errors.New("invalid provider endpoint origin")
+		}
 	}
 	return provider, nil
 }

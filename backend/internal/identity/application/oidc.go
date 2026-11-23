@@ -14,6 +14,7 @@ import (
 
 type OIDCConfig struct {
 	Issuer, ClientID, RedirectURL, PublicOrigin string
+	ClientSecret                                string
 	TransactionTTL                              time.Duration
 }
 
@@ -43,6 +44,9 @@ func (c OIDCConfig) Validate() error {
 	}
 	if c.RedirectURL != c.PublicOrigin+"/api/v1/auth/oidc/callback" {
 		return fmt.Errorf("OIDC redirect must be the configured application callback")
+	}
+	if c.ClientSecret == "" || strings.TrimSpace(c.ClientSecret) != c.ClientSecret || len(c.ClientSecret) > 4096 {
+		return fmt.Errorf("OIDC client secret is required")
 	}
 	if c.ClientID == "" || len(c.ClientID) > 200 || strings.ContainsAny(c.ClientID, " \t\r\n") {
 		return fmt.Errorf("invalid OIDC client ID")

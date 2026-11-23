@@ -229,6 +229,56 @@ def check_audit_migration(psql, migrate):
         raise RuntimeError("audit reapply changed legacy evidence")
 
 
+def check_oidc_binding_migration(psql, migrate):
+    # Dedicated synthetic owners make the new FK's RESTRICT behavior observable.
+    run(*psql, "-q", "-c", """
+        INSERT INTO users(id,name,email) VALUES
+        ('00000000-0000-0000-0000-00000000fa01','OIDC schema A','oidc-schema-a@example.test'),
+        ('00000000-0000-0000-0000-00000000fa02','OIDC schema B','oidc-schema-b@example.test');
+    """)
+    existing = EXPECTED_TABLES | {"tutor_offering_deactivations"}
+    def snapshot():
+        return {table: output(*psql, "-Atc", f"SELECT md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]')::text) FROM {table} t")
+                for table in sorted(existing)}
+    before = snapshot()
+    run(*migrate, "up", "1")
+    check_tables(psql, existing | {"oidc_identities"})
+    if snapshot() != before:
+        raise RuntimeError("OIDC migration changed existing accounts/history")
+    insert = """INSERT INTO oidc_identities(user_id,issuer,subject) VALUES
+        ('00000000-0000-0000-0000-00000000fa01','http://localhost:8180/realms/tutti-demo','schema-subject')"""
+    run(*psql, "-q", "-c", insert)
+    invalid = [
+        ("23505", insert),
+        ("23505", insert.replace("fa01", "fa02")),
+        ("23505", insert.replace("schema-subject", "other-subject")),
+        ("23503", insert.replace("fa01", "fa03").replace("schema-subject", "unknown-owner")),
+        ("23503", "DELETE FROM users WHERE id='00000000-0000-0000-0000-00000000fa01'"),
+        ("23514", insert.replace("fa01", "fa02").replace("schema-subject", "")),
+        ("23514", insert.replace("fa01", "fa02").replace("schema-subject", " ")),
+        ("23514", insert.replace("fa01", "fa02").replace("http://localhost:8180/realms/tutti-demo", "not-a-url")),
+    ]
+    for state, statement in invalid:
+        run(*psql, "-q", "-c", f"SELECT tutti_test.expect_state('{state}',$test${statement}$test$)", stdout=subprocess.DEVNULL)
+    # Exact issuer casing identifies a different identity; no email/name matching.
+    run(*psql, "-q", "-c", insert.replace("fa01", "fa02").replace("tutti-demo", "Tutti-demo"))
+    if output(*psql, "-Atc", "SELECT count(*) FROM oidc_identities") != "2":
+        raise RuntimeError("OIDC pair equality is not exact")
+    down = (MIGRATIONS / "000016_oidc_identities.down.sql").read_text()
+    rejected = subprocess.run([*psql, "-q", "-c", down], text=True, capture_output=True, timeout=30)
+    if rejected.returncode == 0 or "while mappings exist" not in rejected.stderr:
+        raise RuntimeError("OIDC rollback failed to preserve active mappings")
+    # Only these fixture mappings exist in this disposable database.
+    run(*psql, "-q", "-c", "DELETE FROM oidc_identities")
+    run(*migrate, "down", "1")
+    check_tables(psql, existing)
+    if snapshot() != before:
+        raise RuntimeError("OIDC rollback changed existing accounts/history")
+    run(*migrate, "up", "1")
+    if snapshot() != before:
+        raise RuntimeError("OIDC reapply changed existing accounts/history")
+
+
 def main():
     network = os.environ.get("TUTTI_TEST_DOCKER_NETWORK")
     network_args = ["--network", network, "--network-alias", "schema-postgres"] if network else ["-p", "127.0.0.1::5432"]
@@ -296,13 +346,14 @@ def main():
         check_policy_cancellation_migration(psql, migrate)
         check_suspension_migration(psql, migrate)
         check_audit_migration(psql, migrate)
+        check_oidc_binding_migration(psql, migrate)
         check_concurrency(psql)
         run(*psql, "-q", "-c", "DROP SCHEMA tutti_test CASCADE", stderr=subprocess.DEVNULL)
         run(*migrate, "down", "-all")
         check_tables(psql, set())
         run(*migrate, "up")
-        check_tables(psql, EXPECTED_TABLES | {"tutor_offering_deactivations"})
-        print("PASS: all 33 tables, legacy issue/suspension/disciplinary evidence, migrations 12/13/14/15 rollback, audit retention guards, concurrent exclusion, complete rollback and reapply.")
+        check_tables(psql, EXPECTED_TABLES | {"tutor_offering_deactivations", "oidc_identities"})
+        print("PASS: all 34 tables, OIDC binding constraints/preservation/guarded rollback/reapply, legacy issue/suspension/disciplinary evidence, migrations 12/13/14/15 rollback, audit retention guards, concurrent exclusion, complete rollback and reapply.")
     except Exception:
         run("docker", "logs", "--tail", "20", container)
         raise
