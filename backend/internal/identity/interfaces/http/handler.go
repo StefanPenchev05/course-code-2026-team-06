@@ -57,6 +57,7 @@ func (in studentInput) details() domain.StudentDetails {
 }
 
 type profile struct {
+	ProgramID          string        `json:"program_id,omitempty"`
 	ID                 string        `json:"id"`
 	Name               string        `json:"name"`
 	Email              string        `json:"email"`
@@ -80,6 +81,9 @@ func safeProfile(p domain.Principal) profile {
 	}
 	result := profile{ID: p.ID, Name: p.Name, Email: p.Email, Roles: roles, VerifiedStudent: p.VerifiedStudent(),
 		Verification: p.Verification, CoordinatorFaculty: p.CoordinatorFaculty}
+	if p.Student {
+		result.ProgramID = p.ProgramID
+	}
 	if p.Verification == domain.Rejected {
 		result.RejectionReason = p.RejectionReason
 	}
@@ -130,6 +134,11 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 }
 
 func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
+	// A disconnected client's cancelled operation is not a server failure.
+	// Keep unrelated failures visible even if cancellation happened concurrently.
+	if errors.Is(r.Context().Err(), context.Canceled) && errors.Is(err, context.Canceled) {
+		return
+	}
 	status := http.StatusInternalServerError
 	message := "internal server error"
 	switch {

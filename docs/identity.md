@@ -61,6 +61,10 @@ All paths are under `/api/v1`.
 
 Passwords for registration and activation must be 12–256 bytes. Invalid credentials return a generic 401. Faculty-mismatched requests return 404, duplicate registration details or already-decided verifications return 409, and validation failures return 422. Authentication does not confer student permissions while verification is pending or rejected.
 
+Authenticated profile responses (`GET /api/v1/auth/me` and successful legacy login) include `program_id` for users with a student role, including tutors and pending/rejected students. It comes from the current server-loaded student record and is omitted for coordinator-only accounts. A client can use it with `GET /api/v1/programs/{id}/subjects` to offer subjects in the student's program. It is a UI hint, not authorization: discovery/booking still enforce current membership server-side.
+
+Client-disconnected operations that return `context.Canceled` (including wrapped errors) exit without an error JSON write or an error-level request-failure log only when the request context is also cancelled. Genuine server errors, independently cancelled operations on live requests, and timeouts retain their existing error behavior. The same narrow cancellation handling applies to Catalog and Tutoring handlers.
+
 ## Authorization and activation
 
 The application layer owns workflow decisions. PostgreSQL transactions keep registration, resubmission, review, and password activation atomic. Coordinator queries derive faculty from the actor's current database assignment. Pending verification state is checked under a row lock before it can be decided. Resubmission keeps previous decisions and routes the new record using the selected program. The schema stores current registration details rather than snapshots. If the student moves to another faculty, the former faculty can see its old decision without seeing current registration details.

@@ -169,6 +169,10 @@ func TestIdentityAPI(t *testing.T) {
 	a.call(t, 204, "GET", "/test/faculty", nil, ca)
 	a.call(t, 404, "GET", "/test/faculty", nil, cb)
 	a.call(t, 401, "GET", "/auth/me", nil, nil)
+	if f := fields(t, a.call(t, 200, "GET", "/auth/me", nil, ca)); f["program_id"] != nil {
+		t.Fatal("coordinator unexpectedly received a student program", f)
+	}
+
 	a.call(t, 401, "GET", "/coordinator/verifications", nil, nil)
 	a.call(t, 422, "POST", "/auth/register", registration("missing@uni.example", "S0", fixture(99)), nil)
 
@@ -221,12 +225,16 @@ func TestIdentityAPI(t *testing.T) {
 	}
 	a.call(t, 422, "POST", route+"/reject", map[string]string{"reason": "   "}, ca)
 	a.call(t, 204, "POST", route+"/reject", map[string]string{"reason": "Check your program"}, ca)
-	if f := fields(t, a.call(t, 200, "GET", "/auth/me", nil, student)); f["verification_status"] != "REJECTED" || f["rejection_reason"] != "Check your program" {
+	if f := fields(t, a.call(t, 200, "GET", "/auth/me", nil, student)); f["verification_status"] != "REJECTED" || f["rejection_reason"] != "Check your program" || f["program_id"] != fixture(3) {
 		t.Fatal(f)
 	}
 	resubmit := nilRegistrationPassword(registration("updated@uni.example", "S3", fixture(4)))
 	second := fields(t, a.call(t, 201, "POST", "/auth/resubmit-verification", resubmit, student))
 	newID := second["verification_id"].(string)
+	if f := fields(t, a.call(t, 200, "GET", "/auth/me", nil, student)); f["program_id"] != fixture(4) {
+		t.Fatal("profile did not reflect current program after resubmission", f)
+	}
+
 	a.call(t, 409, "POST", "/auth/resubmit-verification", resubmit, student)
 	if v := fields(t, a.call(t, 200, "GET", route, nil, ca)); v["status"] != "REJECTED" || v["email"] != nil {
 		t.Fatal(v)
@@ -257,8 +265,12 @@ func TestIdentityAPI(t *testing.T) {
 	exec("INSERT INTO tutor_profiles (student_id,description,approved_at) VALUES ($1,'Tutor',now())", userID)
 	profile = fields(t, login(200, "updated@uni.example", password))
 	roles := profile["roles"].([]any)
-	if len(roles) != 2 || roles[0] != "student" || roles[1] != "tutor" || profile["verified_student"] != true {
+	if len(roles) != 2 || roles[0] != "student" || roles[1] != "tutor" || profile["verified_student"] != true || profile["program_id"] != fixture(4) {
 		t.Fatal(profile)
+	}
+
+	if f := fields(t, a.call(t, 200, "GET", "/auth/me", nil, student)); f["program_id"] != fixture(4) {
+		t.Fatal("tutor student profile missing current program", f)
 	}
 
 	if w := a.request("POST", "/auth/logout", "https://wrong.example", nil, student); w.Code != 403 {
