@@ -1,0 +1,31 @@
+# Local course demo only. Requires compose.yaml; never use start-dev in production.
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.2
+    command: ["start-dev", "--import-realm"]
+    restart: "no"
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:?Set KEYCLOAK_ADMIN_USERNAME locally}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?Set KEYCLOAK_ADMIN_PASSWORD locally}
+      TUTTI_OIDC_CLIENT_SECRET: ${TUTTI_OIDC_CLIENT_SECRET:?Set TUTTI_OIDC_CLIENT_SECRET locally}
+      KC_DB: dev-file
+      KC_HOSTNAME: http://localhost:8180
+      KC_HEALTH_ENABLED: "true"
+    ports:
+      - "127.0.0.1:8180:8080"
+    volumes:
+      - keycloak_demo_data:/opt/keycloak/data
+      - ./infra/keycloak/realm:/opt/keycloak/data/import:ro
+    healthcheck:
+      test:
+        - CMD
+        - bash
+        - -ec
+        - "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.0\\r\\n\\r\\n' >&3; IFS= read -r status <&3; [[ \"$$status\" == *' 200 '* ]]"
+      interval: 5s
+      timeout: 3s
+      start_period: 90s
+      retries: 30
+
+volumes:
+  keycloak_demo_data:

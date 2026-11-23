@@ -79,3 +79,7 @@ See the [Coordination guide](docs/coordination.md) for issue reporting/resolutio
 ## Requirements baseline
 
 See the [current requirements](docs/1.3-1.4_user-story_mapping--requirement_analysis.md), [traceability matrix](docs/requirements-traceability.md) and [decision log](docs/requirements-decisions.md) for approved scope, implementation evidence and outstanding decisions. Uni.lu-only SSO is mandatory; current local-password Identity APIs are legacy pending migration.
+
+## Local SSO provider demo
+
+See the [Keycloak course-demo guide](docs/sso-demo.md) for optional local OIDC infrastructure, synthetic identities, startup and verification. This is not official Uni.lu authentication; Go login/callback integration remains Issue #65.
