@@ -10,7 +10,7 @@ PostgreSQL and Redis. Nothing is mocked, so a passing run is real frontend-to-ba
   (see the root `README.md` and `docs/identity.md`).
 - Playwright's browser, once per machine: `npx playwright install chromium`.
 - A **disposable** database. Each run adds a test faculty, program, subject, semester,
-  coordinator, students and a tutor to it, and they stay there afterwards.
+  coordinator, students, tutors, free times and a session request to it, and they stay there afterwards.
 
 ## Run
 
@@ -80,5 +80,13 @@ free time" without depending on screens that don't exist yet.
   rating; the degree filter narrows and restores the list; the profile shows the subject, rating
   count and the free time in the student's time zone (fixed to Europe/Luxembourg in the test);
   the private grade from the application appears nowhere on the page.
+
+## Journeys covered (issue #31)
+
+- An approved tutor has one weekly time, created through the real API in setup (the page can't create
+  weekly times yet: the API has no list of semesters to choose from). In the browser the tutor sees
+  it in its local time and zone, adds a one-off time, gets the real overlap error, edits the weekly
+  time, skips one weekly date and restores it. A student then books the one-off time (real
+  `POST /sessions`), and removing it is refused with the "a student has a booking" explanation.
 
 Failed runs keep a screenshot and trace in `test-results/` (`npx playwright show-trace <file>`).

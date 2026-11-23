@@ -31,6 +31,8 @@ export interface TestCatalog {
   subjectId: string;
   subjectCode: string;
   subjectName: string;
+  /** Runs from yesterday to 120 days from now. */
+  semesterId: string;
   coordinatorEmail: string;
   coordinatorPassword: string;
 }

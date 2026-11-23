@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { errorMessage } from '../../shared/api/errors';
 import { Alert, Button, Spinner } from '../../shared/ui';
 import { tutorsApi } from './api';
-import { browserTimeZone, groupByDay, MODE_LABEL, timeRange } from './format';
+import { browserTimeZone, groupByDay, MODE_LABEL, timeRange } from '../../shared/utils/datetime';
 import type { FreeSlot } from './types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -86,7 +86,7 @@ export function FreeTimes({ tutorId, now, timeZone = browserTimeZone() }: FreeTi
             <div key={day.key} className="day">
               <h3 className="day__title">{day.label}</h3>
               <ul className="slot-list">
-                {day.slots.map((slot) => (
+                {day.items.map((slot) => (
                   <li key={`${slot.id}-${slot.starts_at}`} className="slot">
                     <span className="slot__time">{timeRange(slot, timeZone)}</span>{' '}
                     <span className="muted">{MODE_LABEL[slot.allowed_mode] ?? slot.allowed_mode}</span>

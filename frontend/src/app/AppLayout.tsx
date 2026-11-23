@@ -40,7 +40,14 @@ export function AppLayout() {
                   <NavLink to="/sessions">My sessions</NavLink>
                 </>
               )}
-              {hasRole(user, 'tutor') && <NavLink to="/tutor">Teaching</NavLink>}
+              {hasRole(user, 'tutor') && (
+                <>
+                  <NavLink to="/tutor" end>
+                    Teaching
+                  </NavLink>
+                  <NavLink to="/tutor/availability">My availability</NavLink>
+                </>
+              )}
               {hasRole(user, 'coordinator') && <NavLink to="/coordinator">Coordinator</NavLink>}
               <Button variant="link" onClick={() => void handleLogout()} loading={loggingOut}>
                 Log out

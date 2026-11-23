@@ -53,7 +53,7 @@ test('a student finds an approved tutor for a subject and sees the profile with 
   const card = page.getByRole('listitem').filter({ has: page.getByRole('link', { name: tutor.name }) });
   await expect(card).toContainText(`${subjectName} · No ratings yet`);
   await expect(card).toContainText(description);
-  await expect(page.getByRole('heading', { name: '1 tutor' })).toBeVisible();
+  // (Other journeys may add approved tutors for the same subject, so the total isn't checked.)
   await expect(page.getByRole('link', { name: applicant.name })).toHaveCount(0);
 
   // Academic filter: the tutor's degree level (the test program is a bachelor).

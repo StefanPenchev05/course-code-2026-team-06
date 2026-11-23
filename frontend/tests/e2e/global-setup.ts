@@ -50,6 +50,7 @@ async function createTestCatalog(api: APIRequestContext): Promise<TestCatalog> {
   const facultyName = `E2E Faculty ${suffix}`;
   const programName = `E2E Program ${suffix}`;
   const subjectId = randomUUID();
+  const semesterId = randomUUID();
   const subjectCode = `E2E-${suffix}`;
   const subjectName = `E2E Subject ${suffix}`;
   const coordinatorEmail = `e2e-coordinator-${suffix}@${E2E.emailDomain}`;
@@ -68,7 +69,7 @@ async function createTestCatalog(api: APIRequestContext): Promise<TestCatalog> {
       `INSERT INTO subjects (id, code, name) VALUES ('${subjectId}', '${subjectCode}', '${subjectName}');`,
       `INSERT INTO program_subjects (program_id, subject_id) VALUES ('${programId}', '${subjectId}');`,
       // Free times must lie inside a configured semester (docs/scheduling.md).
-      `INSERT INTO semesters (name, starts_at, ends_at) VALUES ('E2E Semester ${suffix}', now() - interval '1 day', now() + interval '120 days');`,
+      `INSERT INTO semesters (id, name, starts_at, ends_at) VALUES ('${semesterId}', 'E2E Semester ${suffix}', now() - interval '1 day', now() + interval '120 days');`,
       `INSERT INTO users (id, name, email) VALUES ('${coordinatorId}', 'E2E Coordinator', '${coordinatorEmail}');`,
       `INSERT INTO coordinators (user_id, employee_number, faculty_id) VALUES ('${coordinatorId}', 'E2E-${suffix}', '${facultyId}');`,
       `INSERT INTO account_activation_tokens (coordinator_id, token_hash, expires_at) VALUES ('${coordinatorId}', decode('${digest}', 'hex'), now() + interval '1 hour');`,
@@ -88,6 +89,7 @@ async function createTestCatalog(api: APIRequestContext): Promise<TestCatalog> {
     subjectId,
     subjectCode,
     subjectName,
+    semesterId,
     coordinatorEmail,
     coordinatorPassword,
   };

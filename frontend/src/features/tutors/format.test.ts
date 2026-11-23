@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { groupByDay, ratingText, timeRange } from './format';
+import { groupByDay, timeRange } from '../../shared/utils/datetime';
+import { ratingText } from './format';
 import type { FreeSlot } from './types';
 
 function slot(starts_at: string, ends_at: string): FreeSlot {
@@ -26,7 +27,7 @@ describe('free time display', () => {
     const groups = groupByDay([lateEvening, nextMorning], 'Europe/Luxembourg', 'en-GB');
     expect(groups).toHaveLength(1);
     expect(groups[0].label).toBe('Wednesday 2 December');
-    expect(groups[0].slots).toHaveLength(2);
+    expect(groups[0].items).toHaveLength(2);
 
     expect(groupByDay([lateEvening, nextMorning], 'UTC', 'en-GB').map((g) => g.label)).toEqual([
       'Tuesday 1 December',

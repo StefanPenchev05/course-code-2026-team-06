@@ -31,7 +31,9 @@ export interface TutorProfile extends Tutor {
   offerings: Offering[];
 }
 
-export type SessionMode = 'ONLINE' | 'ONSITE' | 'BOTH';
+import type { SessionMode } from '../../shared/utils/datetime';
+
+export type { SessionMode };
 
 /** A free interval the student can book. Booked time is already subtracted by the API. */
 export interface FreeSlot {

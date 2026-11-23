@@ -53,9 +53,14 @@ export function HomePage() {
           </>
         )}
         {hasRole(user, 'tutor') && (
-          <li>
-            <Link to="/tutor">Teaching</Link>
-          </li>
+          <>
+            <li>
+              <Link to="/tutor">Teaching</Link>
+            </li>
+            <li>
+              <Link to="/tutor/availability">My availability</Link>
+            </li>
+          </>
         )}
         {hasRole(user, 'coordinator') && (
           <li>

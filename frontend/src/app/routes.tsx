@@ -4,6 +4,7 @@ import { HomePage } from '../pages/HomePage';
 import { LoginPage } from '../pages/LoginPage';
 import { NotFoundPage } from '../pages/NotFoundPage';
 import { RegisterPage } from '../pages/RegisterPage';
+import { TutorAvailabilityPage } from '../pages/TutorAvailabilityPage';
 import { TutorProfilePage } from '../pages/TutorProfilePage';
 import { TutorSearchPage } from '../pages/TutorSearchPage';
 import { RouteErrorPage } from '../pages/RouteErrorPage';
@@ -42,7 +43,10 @@ export const routes: RouteObject[] = [
           },
           {
             element: <RequireRole role="tutor" />,
-            children: [{ path: 'tutor/*', element: <ComingSoonPage title="Teaching" issue={33} /> }],
+            children: [
+              { path: 'tutor/availability', element: <TutorAvailabilityPage /> },
+              { path: 'tutor/*', element: <ComingSoonPage title="Teaching" issue={33} /> },
+            ],
           },
           {
             element: <RequireRole role="coordinator" />,

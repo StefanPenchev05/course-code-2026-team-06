@@ -89,16 +89,8 @@ export interface FreeWindow {
   endsAt: Date;
 }
 
-/**
- * An approved tutor for this run's subject (application with a private
- * grade, approved by the coordinator) who published one free window.
- */
-export async function approvedTutorWithFreeTime(
-  prefix: string,
-  description: string,
-  grade: number,
-  window: FreeWindow,
-): Promise<Student> {
+/** An approved tutor for this run's subject: application with a private grade, approved by the coordinator. */
+export async function approvedTutor(prefix: string, description: string, grade: number): Promise<Student> {
   const tutor = await verifiedStudent(prefix);
   const api = await loggedIn(tutor.email, tutor.password);
   try {
@@ -112,7 +104,22 @@ export async function approvedTutorWithFreeTime(
       const approved = await coordinator.post(`/api/v1/coordinator/tutor-applications/${applicationId}/approve`);
       expect(approved.status(), 'tutor application approval').toBe(204);
     });
+  } finally {
+    await api.dispose();
+  }
+  return tutor;
+}
 
+/** An approved tutor who published one free window (the tutor's own POST /me/availability/slots). */
+export async function approvedTutorWithFreeTime(
+  prefix: string,
+  description: string,
+  grade: number,
+  window: FreeWindow,
+): Promise<Student> {
+  const tutor = await approvedTutor(prefix, description, grade);
+  const api = await loggedIn(tutor.email, tutor.password);
+  try {
     const slot = await api.post('/api/v1/tutors/me/availability/slots', {
       data: { starts_at: window.startsAt.toISOString(), ends_at: window.endsAt.toISOString(), allowed_mode: 'ONLINE' },
     });
@@ -121,6 +128,31 @@ export async function approvedTutorWithFreeTime(
     await api.dispose();
   }
   return tutor;
+}
+
+/**
+ * A verified student requests a 60-minute session at the start of one of the
+ * tutor's windows (real POST /sessions). The REQUESTED session then reserves that time.
+ */
+export async function bookWindow(learner: Student, tutorId: string, windowId: string, startsAt: string): Promise<void> {
+  const api = await loggedIn(learner.email, learner.password);
+  try {
+    const profile = (await (await api.get(`/api/v1/tutors/${tutorId}`)).json()) as { data: { offerings: { id: string }[] } };
+    const booked = await api.post('/api/v1/sessions', {
+      data: {
+        offering_id: profile.data.offerings[0].id,
+        availability_slot_id: windowId,
+        starts_at: startsAt,
+        duration_minutes: 60,
+        mode: 'ONLINE',
+        purpose: 'EXAM_PREPARATION',
+        description: 'E2E booking that protects this window.',
+      },
+    });
+    expect(booked.status(), `booking: ${await booked.text()}`).toBe(201);
+  } finally {
+    await api.dispose();
+  }
 }
 
 /** The home-faculty coordinator suspends a user (POST /coordinator/users/{id}/suspend, returns 200). */
