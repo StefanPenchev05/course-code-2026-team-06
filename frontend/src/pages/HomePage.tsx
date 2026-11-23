@@ -1,5 +1,6 @@
 import { Link } from 'react-router';
 import { useAuth } from '../features/auth/AuthContext';
+import { ResubmitForm } from '../features/auth/ResubmitForm';
 import { hasRole } from '../features/auth/types';
 import { Alert } from '../shared/ui';
 
@@ -16,10 +17,13 @@ function VerificationNotice() {
       );
     case 'REJECTED':
       return (
-        <Alert kind="warning" title="Your registration was not approved">
-          {user.rejection_reason && <p>Reason: {user.rejection_reason}</p>}
-          <p>You can correct your details and submit them again.</p>
-        </Alert>
+        <>
+          <Alert kind="warning" title="Your registration was not approved">
+            {user.rejection_reason && <p>Reason: {user.rejection_reason}</p>}
+            <p>You can correct your details below and send them again.</p>
+          </Alert>
+          <ResubmitForm user={user} />
+        </>
       );
     default:
       return null;

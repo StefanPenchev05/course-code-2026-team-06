@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../shared/api/client';
-import { byteLength, registrationProblem, validateRegistration, type RegistrationForm } from './registration';
+import { byteLength, studentDetailsProblem, validateRegistration, type RegistrationForm } from './registration';
 
 const valid: RegistrationForm = {
   name: 'Ana Student',
@@ -43,24 +43,24 @@ describe('validateRegistration', () => {
   });
 });
 
-describe('registrationProblem', () => {
+describe('studentDetailsProblem', () => {
   it('puts the domain rule next to the email field', () => {
-    const problem = registrationProblem(new ApiError(422, 'invalid input: use an allowed university email address'));
+    const problem = studentDetailsProblem(new ApiError(422, 'invalid input: use an allowed university email address'), 'register');
     expect(problem.fields.email).toMatch(/university email/);
   });
 
   it('offers to log in when the account already exists', () => {
-    const problem = registrationProblem(new ApiError(409, 'conflicting operation'));
+    const problem = studentDetailsProblem(new ApiError(409, 'conflicting operation'), 'register');
     expect(problem.alreadyRegistered).toBe(true);
     expect(problem.form).toMatch(/already exists/);
   });
 
   it('asks for another program when it disappeared', () => {
-    expect(registrationProblem(new ApiError(404, 'resource not found')).fields.programId).toMatch(/no longer available/);
+    expect(studentDetailsProblem(new ApiError(404, 'resource not found'), 'register').fields.programId).toMatch(/no longer available/);
   });
 
   it('shows other 422 rules without the "invalid input" prefix', () => {
-    const problem = registrationProblem(new ApiError(422, 'invalid input: provide a name, student ID and valid program ID'));
+    const problem = studentDetailsProblem(new ApiError(422, 'invalid input: provide a name, student ID and valid program ID'), 'register');
     expect(problem.form).toBe('Provide a name, student ID and valid program ID');
   });
 });

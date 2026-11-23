@@ -17,6 +17,8 @@ export default defineConfig({
     },
   },
   test: {
+    // Only unit/component tests. Browser journeys in tests/e2e run with Playwright (npm run test:e2e).
+    include: ['src/**/*.test.{ts,tsx}'],
     environment: 'jsdom',
     globals: true,
     setupFiles: './src/test/setup.ts',

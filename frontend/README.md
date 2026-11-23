@@ -45,19 +45,16 @@ npm test           # unit + component tests (mocked API, not real-backend eviden
 npm run lint       # code-quality checks (ESLint)
 npm run typecheck
 npm run build
+npm run test:e2e   # browser journeys against the REAL backend; setup in tests/e2e/README.md
 ```
 
-### A test account (until the register screen exists, #28)
+### A test account
 
-```sh
-curl -i http://localhost:5173/api/v1/auth/register \
-  -H 'Origin: http://localhost:5173' -H 'Content-Type: application/json' \
-  -d '{"name":"Test Student","email":"test@example.test","student_number":"0123456789",
-       "program_id":"00000000-0000-0000-0000-000000000111","password":"a-long-test-password"}'
-```
-
-You can log in straight away. Until a coordinator approves the registration you'll see the
-"waiting for approval" notice, and the student pages stay locked.
+Open http://localhost:5173/register and sign up with an address on a domain listed in
+`UNIVERSITY_EMAIL_DOMAINS` (for example `you@example.test`). With the catalog fixture loaded,
+choose a "Demo" faculty and its program. You're logged in straight away; until a coordinator
+approves the registration you'll see the "waiting for approval" notice, and the student pages
+stay locked.
 
 ---
 
@@ -73,15 +70,18 @@ src/
 │   └── AppLayout.tsx     # header, navigation, logout
 ├── pages/                # one component per screen (thin: composes features + shared UI)
 ├── features/<name>/      # everything for one feature: api.ts, types.ts, components, hooks
-│   └── auth/             # session state (useAuth), login/logout, safe redirects
+│   ├── auth/             # session state (useAuth), login/logout, sign-up, resubmission
+│   └── catalog/          # public faculty/program lists, ProgramPicker (import from catalog/index.ts)
 ├── shared/
 │   ├── api/client.ts     # the ONLY place that calls fetch
 │   ├── api/errors.ts     # errorMessage(): API error → sentence for the user
-│   └── ui/               # Button, TextField, Alert, Spinner, PageLoader
-└── test/                 # test setup and the fetch mock (mockApi)
+│   ├── hooks/            # useFocusOnFailure (move focus to the problem after a failed submit)
+│   └── ui/               # Button, TextField, SelectField, Alert, Spinner, PageLoader
+└── test/                 # unit-test setup and the fetch mock (mockApi, a TEST DOUBLE)
+tests/e2e/                # Playwright browser journeys against the real backend (no mocks)
 ```
 
-Suggested feature folders as the issues land: `features/catalog`, `features/tutoring`, `features/scheduling`,
+Suggested feature folders as the issues land: `features/tutoring`, `features/scheduling`,
 `features/feedback`, `features/coordination`.
 
 ---
