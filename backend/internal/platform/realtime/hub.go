@@ -71,6 +71,14 @@ type Hub struct {
 
 var _ events.Publisher = (*Hub)(nil)
 
+// Resync drops current connections after a transient fanout gap without stopping
+// the hub. Successful reconnects must refetch HTTP data and renew view watches.
+func (h *Hub) Resync() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for _, connections := range h.users { for c := range connections { c.stop(websocket.StatusGoingAway) } }
+}
+
 func NewHub(config Config) (*Hub, error) {
 	if !config.valid() {
 		return nil, errors.New("invalid realtime limits or timeouts")
