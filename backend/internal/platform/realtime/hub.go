@@ -203,7 +203,7 @@ func (h *Hub) authenticate(c *connection) (domain.Principal, error) {
 	return p, nil
 }
 
-func (h *Hub) serve(c *connection, socket *websocket.Conn) {
+func (h *Hub) serve(c *connection, socket *websocket.Conn, forceClose func()) {
 	socket.SetReadLimit(events.MaxMessageBytes)
 	var tasks sync.WaitGroup
 	tasks.Add(2)
@@ -211,13 +211,16 @@ func (h *Hub) serve(c *connection, socket *websocket.Conn) {
 	defer c.cancel()
 	defer func() {
 		// Bound the library's close handshake, including unresponsive clients.
-		timer := time.AfterFunc(250*time.Millisecond, func() { _ = socket.CloseNow() })
+		// CloseNow waits if Close has already started. Close the actual hijacked
+		// IO after the grace period, including when the reader already returned.
+		timer := time.AfterFunc(250*time.Millisecond, forceClose)
 		defer timer.Stop()
 		code := websocket.StatusCode(c.closeCode.Load())
 		if code == 0 {
 			code = websocket.StatusGoingAway
 		}
 		_ = socket.Close(code, "connection closed")
+		forceClose()
 		_ = socket.CloseNow()
 	}()
 	// Read is required to process pong and close control frames. All application
@@ -226,7 +229,7 @@ func (h *Hub) serve(c *connection, socket *websocket.Conn) {
 		defer tasks.Done()
 		defer c.cancel()
 		// The close handshake needs this reader alive after c.ctx is cancelled.
-		// The bounded deferred CloseNow above always releases it before Wait.
+		// The bounded underlying IO close always releases it before Wait.
 		_, _, err := socket.Read(context.Background())
 		if err == nil {
 			c.stop(websocket.StatusPolicyViolation)

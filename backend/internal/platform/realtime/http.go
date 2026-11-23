@@ -1,8 +1,10 @@
 package realtime
 
 import (
+	"bufio"
 	"context"
 	"errors"
+	"net"
 	"net/http"
 
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/domain"
@@ -19,6 +21,21 @@ type Handler struct {
 	hub      *Hub
 	sessions Sessions
 	origin   string
+}
+
+// Keep the hijacked connection only to enforce a hard bound on close handshakes.
+// Conn.CloseNow waits when the library's Close is already in progress.
+type upgradeWriter struct {
+	http.ResponseWriter
+	connection net.Conn
+}
+
+func (w *upgradeWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	conn, buffer, err := http.NewResponseController(w.ResponseWriter).Hijack()
+	if err == nil {
+		w.connection = conn
+	}
+	return conn, buffer, err
 }
 
 func NewHandler(hub *Hub, sessions Sessions, origin string) *Handler {
@@ -78,11 +95,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer h.hub.remove(c)
-	socket, err := websocket.Accept(w, r, &websocket.AcceptOptions{
+	upgrade := &upgradeWriter{ResponseWriter: w}
+	socket, err := websocket.Accept(upgrade, r, &websocket.AcceptOptions{
 		OriginPatterns: []string{h.origin}, CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {
 		return
 	}
-	h.hub.serve(c, socket)
+	h.hub.serve(c, socket, func() { _ = upgrade.connection.Close() })
 }

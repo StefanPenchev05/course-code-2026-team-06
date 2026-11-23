@@ -68,11 +68,11 @@ See the [Scheduling guide](docs/scheduling.md) for recurring availability, excep
 
 See [trusted semester maintenance](docs/semester-maintenance.md) for verified calendar inputs, PowerShell dry-run/apply commands, read-only impact analysis and rollover reconfirmation.
 
-## Real-time updates (planned)
+## Real-time updates
 
-The [real-time WebSocket design](docs/realtime.md) describes the planned authenticated `GET /ws` connection, minimal versioned invalidation events, backend/React integration boundaries, security, post-commit publication, and reconnect/refetch behavior. **This is not yet an implemented endpoint.** The delivery plan is tracked in [#84](https://github.com/StefanPenchev05/course-code-2026-team-06/issues/84): backend issues #85–#89 and frontend issues #90–#94.
+The [real-time WebSocket guide](docs/realtime.md) describes the authenticated `GET /ws` gateway and versioned invalidation contract implemented for #85/#86. Domain publishers, worker fanout and React integration remain future work; the gateway alone emits no business events. The delivery plan is tracked in [#84](https://github.com/StefanPenchev05/course-code-2026-team-06/issues/84): backend issues #85–#89 and frontend issues #90–#94.
 
-Start with the protocol contract (#85), then the authenticated gateway (#86) before scheduling publication (#87). The [Codex starting brief](docs/codex-realtime-foundation.md) scopes this foundation work. The frontend currently has no application implementation beyond a `.gitkeep` placeholder; React integration must coordinate with frontend foundation #27.
+Scheduling publication (#87) must use committed events and current recipient/resource authorization; see the exact integration contract in the guide. The [Codex starting brief](docs/codex-realtime-foundation.md) scopes this foundation work. The current React frontend remains unchanged by this gateway task; WebSocket client integration is tracked separately in #90–#94.
 
 ## Background workers
 

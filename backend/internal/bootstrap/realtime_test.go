@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/domain"
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/realtime"
+	events "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/realtime/application"
 	"github.com/coder/websocket"
 )
 
@@ -63,5 +66,53 @@ func TestRESTTimeoutAndPersistentUpgrade(t *testing.T) {
 	_, wire, err := c.Read(ctx)
 	if err != nil || string(wire) != "still alive" {
 		t.Fatalf("socket inherited REST timeout: %s %v", wire, err)
+	}
+}
+
+type realtimeTestSessions struct{}
+
+func (realtimeTestSessions) SessionCheck(*http.Request) (func(context.Context) (domain.Principal, error), error) {
+	return func(context.Context) (domain.Principal, error) {
+		return domain.Principal{ID: "00000000-0000-0000-0000-000000000001", Student: true, Verification: domain.Approved}, nil
+	}, nil
+}
+
+func TestSocketSurvivesProductionRESTDeadline(t *testing.T) {
+	hub, err := realtime.NewHub(realtime.DefaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	const origin = "https://tutti.example"
+	server := httptest.NewUnstartedServer(apiHandler(http.NotFoundHandler(), realtime.NewHandler(hub, realtimeTestSessions{}, origin), 10*time.Second))
+	server.Config.ReadTimeout = 10 * time.Second
+	server.Config.WriteTimeout = 15 * time.Second
+	server.Start()
+	defer server.Close()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if err := hub.Shutdown(ctx); err != nil {
+			t.Error(err)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	c, _, err := websocket.Dial(ctx, server.URL+"/ws", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {origin}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.CloseNow()
+	time.Sleep(11 * time.Second)
+	e, _ := events.NewEvent(events.AccountAccessChanged, "", time.Now())
+	if err := hub.Publish(ctx, e, []string{"00000000-0000-0000-0000-000000000001"}, func(context.Context, domain.Principal, events.Event) (bool, error) { return true, nil }); err != nil {
+		t.Fatal(err)
+	}
+	_, wire, err := c.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := events.Decode(wire)
+	if err != nil || got != e {
+		t.Fatal("socket failed after the real ten-second deadline", err)
 	}
 }

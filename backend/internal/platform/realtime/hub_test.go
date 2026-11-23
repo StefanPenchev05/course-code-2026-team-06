@@ -372,7 +372,19 @@ func TestHeartbeatAndShutdown(t *testing.T) {
 	active := readStream(dial(t, server, "student"))
 	// No Read means no automatic pong; this peer must be removed by heartbeat.
 	idle := dial(t, server, "other")
-	time.Sleep(250 * time.Millisecond)
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		h.mu.Lock()
+		remaining := len(h.users[testID(2)])
+		h.mu.Unlock()
+		if remaining == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("inactive client retained")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 	e := testEvent(t)
 	publish(t, h, e, []string{testID(1)}, allow)
 	receive(t, active, e)
@@ -396,5 +408,102 @@ func TestHeartbeatAndShutdown(t *testing.T) {
 	defer h.mu.Unlock()
 	if h.total != 0 || len(h.users) != 0 {
 		t.Fatal("connections leaked")
+	}
+}
+
+func TestSlowSocketAndLimitsReleaseReservations(t *testing.T) {
+	h, _, server := newTestHub(t, func(c *Config) { c.MaxPerUser = 1; c.MaxConnections = 2; c.QueueSize = 1 })
+	c := dial(t, server, "student")
+	s := readStream(c)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	blocked, r, err := websocket.Dial(ctx, server.URL+"/ws", &websocket.DialOptions{HTTPHeader: http.Header{"Origin": {testOrigin}, "Cookie": {"session=student"}}})
+	if blocked != nil {
+		blocked.CloseNow()
+	}
+	if err == nil || r.StatusCode != 429 {
+		t.Fatal("per-user upgrade limit missing")
+	}
+	started := make(chan struct{})
+	var once sync.Once
+	policy := func(ctx context.Context, _ domain.Principal, _ events.Event) (bool, error) {
+		once.Do(func() { close(started) })
+		<-ctx.Done()
+		return false, ctx.Err()
+	}
+	e := testEvent(t)
+	publish(t, h, e, []string{testID(1)}, policy)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("writer did not start")
+	}
+	publish(t, h, e, []string{testID(1)}, allow)
+	publish(t, h, e, []string{testID(1)}, allow)
+	disconnected(t, s)
+	deadline := time.Now().Add(time.Second)
+	for {
+		h.mu.Lock()
+		total := h.total
+		h.mu.Unlock()
+		if total == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("slow socket reservation leaked")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	// A failed upgrade also releases its pre-upgrade reservation.
+	req, _ := http.NewRequest("GET", server.URL+"/ws", nil)
+	req.Header.Set("Origin", testOrigin)
+	req.Header.Set("Cookie", "session=student")
+	response, err := server.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response.Body.Close()
+	if response.StatusCode == 101 {
+		t.Fatal("non-upgrade request accepted")
+	}
+	fresh := dial(t, server, "student")
+	fresh.CloseNow()
+}
+
+func TestInvalidHubConfiguration(t *testing.T) {
+	for _, edit := range []func(*Config){
+		func(c *Config) { c.QueueSize = 0 }, func(c *Config) { c.MaxConnections = 0 }, func(c *Config) { c.MaxPerUser = c.MaxConnections + 1 },
+		func(c *Config) { c.AuthInterval = 0 }, func(c *Config) { c.AuthTimeout = 6 * time.Second }, func(c *Config) { c.WriteTimeout = 0 },
+	} {
+		cfg := DefaultConfig()
+		edit(&cfg)
+		if _, err := NewHub(cfg); err == nil {
+			t.Fatal("invalid limits accepted")
+		}
+	}
+}
+
+func TestUnsupportedMessageWithoutCloseResponseIsBounded(t *testing.T) {
+	h, _, server := newTestHub(t, func(c *Config) { c.PingInterval = time.Minute })
+	c := dial(t, server, "student")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := c.Write(ctx, websocket.MessageBinary, []byte("unsupported")); err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately never Read/respond to the server close frame. This also covers
+	// a peer whose application message made the server's normal reader return.
+	deadline := time.Now().Add(time.Second)
+	for {
+		h.mu.Lock()
+		total := h.total
+		h.mu.Unlock()
+		if total == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("unresponsive closing peer retained")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
