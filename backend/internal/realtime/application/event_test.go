@@ -31,6 +31,47 @@ func TestContractFixtures(t *testing.T) {
 	}
 }
 
+func TestDecodeTruncatedJSON(t *testing.T) {
+	wire := []byte(`{"version":1,"id":"00000000-0000-0000-0000-000000000851","type":"account.access_changed","occurredAt":"2026-11-23T16:00:00Z"}`)
+	if _, err := Decode(wire); err != nil {
+		t.Fatalf("complete message rejected: %v", err)
+	}
+	// Every incomplete prefix covers cuts inside keys, scalar values and the
+	// closing delimiter, including an entirely empty message.
+	for end := 0; end < len(wire); end++ {
+		if _, err := Decode(wire[:end]); !errors.Is(err, ErrInvalidEvent) {
+			t.Fatalf("prefix ending at byte %d: got %v, want %v", end, err, ErrInvalidEvent)
+		}
+	}
+}
+
+func TestDecodeTrailingJSON(t *testing.T) {
+	wire := `{"version":1,"id":"00000000-0000-0000-0000-000000000851","type":"account.access_changed","occurredAt":"2026-11-23T16:00:00Z"}`
+	want, err := Decode([]byte(wire))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := Decode([]byte(wire + " \t\r\n")); err != nil || got != want {
+		t.Fatalf("trailing whitespace changed the message: %v, %v", got, err)
+	}
+	for _, tc := range []struct{ name, suffix string }{
+		{"object", `{}`},
+		{"array", `[]`},
+		{"string", `"extra"`},
+		{"number", `1`},
+		{"boolean", `true`},
+		{"null", `null`},
+		{"repeated_event", wire},
+		{"malformed", `{`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Decode([]byte(wire + "\n" + tc.suffix)); !errors.Is(err, ErrInvalidEvent) {
+				t.Fatalf("got %v, want %v", err, ErrInvalidEvent)
+			}
+		})
+	}
+}
+
 func TestGeneratedEventsAndDuplicateDelivery(t *testing.T) {
 	now := time.Date(2026, 11, 23, 17, 0, 0, 0, time.FixedZone("Luxembourg", 3600))
 	seen := map[string]bool{}

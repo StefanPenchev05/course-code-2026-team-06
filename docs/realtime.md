@@ -33,6 +33,13 @@ The example IDs are illustrative; do not infer their existence in the database. 
 
 ## Event and authorization matrix
 
+All six types below are defined and validated by the version-1 contract. Scheduling
+currently publishes **only `booking.changed` and `availability.changed`** through
+the implemented outbox and Redis fanout (#87). The other four categories require
+producer integration (#88); defining their types does not make those events fire.
+The frontend invalidations in this matrix are requirements for #90–#94, not
+implemented React behavior.
+
 | Event | Expected committed changes | Intended recipients / authorization | Frontend data to invalidate |
 | --- | --- | --- | --- |
 | `booking.changed` | Request, accept/decline, cancel, expiry, completion, attendance correction, policy/suspension cancellation | Session's student and tutor; coordinator only when currently authorized for the applicable session/faculty workflow | Student/tutor session lists, request queues, session detail, available actions |
@@ -47,11 +54,11 @@ All recipients must be resolved **server-side** from authoritative records/permi
 ## Delivery and transaction semantics
 
 1. A domain application service validates permissions and runs a PostgreSQL transaction (existing constraints remain authoritative).
-2. The transaction commits changes, history and email outbox as required by existing business rules.
-3. The realtime publisher makes a **post-commit** notification available to authorized connections. Do **not** emit from an uncommitted transaction, and do not make database success depend on a live browser connection.
-4. React receives an invalidation and refetches the authoritative HTTP endpoint. It must preserve forms, filters and focus when refreshing visible results.
+2. Scheduling persistence triggers capture the two implemented event categories in the dedicated PostgreSQL `realtime_events` outbox. These rows commit atomically with business changes, history and email notifications as required by the existing workflow.
+3. API dispatchers claim committed rows and publish their stable event IDs through Redis pub/sub. Each API subscriber reloads the event, resolves current recipients and queues it through its local hub with current resource authorization. The separate expiration worker's existing PostgreSQL writes use the same capture triggers.
+4. The frontend must receive an invalidation and refetch the authoritative HTTP endpoint, preserving forms, filters and focus. This React integration remains unimplemented (#90–#94).
 
-**Failure behavior:** No business mutation or email notification may roll back just because an optional realtime consumer is disconnected. A rolled-back mutation must not generate a visible change notification. Duplicates are acceptable if clients deduplicate and refetch idempotently; global ordering is not promised. Session expiry and email work may occur in the separate worker process, so an API-process-only callback will not cover every producer. Before #87, select and document a transaction-safe publication path (e.g., a dedicated PostgreSQL event outbox with dispatcher); do **not** repurpose the existing email queue without an explicit schema/contract review. Cross-instance delivery (if multiple API instances exist) requires a fanout mechanism such as Redis pub/sub (#89); Redis pub/sub is not durable replay.
+**Failure behavior:** A failed realtime outbox insert rolls back its business transaction; a rolled-back mutation leaves no deliverable event. After commit, an unavailable Redis subscriber or browser cannot undo the business change or its email notification. Dispatch failures retry with the same event ID. PostgreSQL capture is durable, while Redis pub/sub and browser delivery are best-effort: `dispatched_at` records accepted transient fanout, not receipt by every API or browser. There is no per-browser acknowledgement or offline replay. Duplicates are possible and global ordering is not promised. The realtime outbox is separate from the durable email queue. Cross-instance Redis fanout is implemented under #87; production reliability hardening remains #89. See [delivery](realtime-delivery.md) for leases, retries and recovery.
 
 **Reconnect contract:** Best-effort live delivery, **not guaranteed offline replay**. The client reconnects with bounded exponential backoff plus jitter, then refetches visible queries on every successful connection and on auth/faculty transition. A missed event must never leave an indefinitely stale view. Repeated/unknown messages are safe. Logout or an unauthorized handshake stops reconnect attempts until the user authenticates again. Avoid uncontrolled polling and one socket per mounted React component.
 
@@ -89,11 +96,11 @@ compression, subprotocol or JSON control protocol is used.
 
 ## Frontend integration notes (for #90 onward)
 
-The current branch contains the React HTTP client, but this task adds no WebSocket client. For #90, place a singleton-per-auth-context socket manager under its existing shared infrastructure/provider code; component hooks subscribe to typed invalidation events, never instantiate uncoordinated independent sockets. Refetch with the chosen HTTP query/cache library already present then. State-changing API responses still determine whether a mutation succeeded; WebSocket messages must not substitute for an authoritative write response.
+The current branch contains the React HTTP client, but no application WebSocket client, event-driven query invalidation, browser event-ID deduplication or reconnect/refetch integration. For #90, place a singleton-per-auth-context socket manager under its existing shared infrastructure/provider code; component hooks subscribe to typed invalidation events, never instantiate uncoordinated independent sockets. Reuse the existing HTTP client and feature refresh patterns. The client must reconnect with bounded backoff and jitter, renew authorized availability watches and refetch visible HTTP data on every successful connection, even if no event arrives. State-changing API responses still determine whether a mutation succeeded; WebSocket messages must not substitute for an authoritative write response.
 
 ## Verification checklist
 
-- [x] Contract fixtures/tests cover allowed types, malformed JSON, unknown version/type, duplicates and unauthorized subscriptions (#85).
+- [x] Contract fixtures/tests cover all six types, truncated/trailing JSON, incorrect scalar types, invalid/missing IDs, duplicate fields and event delivery, forbidden account identifiers, and unknown versions/types (#85). Unauthorized subscription messages are covered by gateway tests (#86).
 - [x] Handshake rejects absent session, expired/revoked/suspended session, invalid Origin and untrusted scope (#86).
 - [x] Normal REST requests retain timeouts while a persistent WebSocket survives the request timeout (#86).
 - [x] Scoped gateway tests isolate users/coordinators/faculties and cover slow clients, heartbeat and shutdown (#86). Domain-specific recipient policies and production load remain #87–#89.
@@ -130,16 +137,26 @@ unsupported versions/types and invalid IDs/timestamps. `Decode` additionally
 rejects malformed/trailing JSON, duplicate or unknown object keys, wrong field
 case, nulls and oversized input. There is no dynamic payload escape hatch.
 
-Generate the ID **once per logical event**, persist it with the future outbox,
-and retain it across recipients, dispatch retries and fanout. Never regenerate
-an ID on each retry. Multiple invalidations from one transaction may have separate
-IDs; timestamps do not establish a total order. The hub deliberately accepts
-repeated event IDs and deduplicates candidate users within one publication only.
-It supplies neither replay nor cross-publication deduplication.
+Generate the ID **once per logical event** and retain it across recipients,
+dispatch retries and fanout. The implemented scheduling outbox assigns and
+persists this UUID at capture, coalescing the same event type/entity within a
+transaction. Never regenerate an ID on each retry. Different invalidations from
+one transaction may have separate IDs; timestamps do not establish a total order.
+The hub deliberately accepts repeated event IDs and deduplicates candidate users
+within one publication only. The Redis receiver additionally suppresses its
+4,096 most recent event IDs in process-local memory. Neither mechanism provides
+offline replay or replaces the required bounded browser deduplication cache.
 
 Fixtures live in
-`backend/internal/realtime/application/testdata/protocol.json`, with tests for
-all six event types, repeated event IDs and invalid/unknown fields. Gateway tests
+`backend/internal/realtime/application/testdata/protocol.json`. `event_test.go`
+also exercises every truncated prefix of a valid message and trailing JSON values
+directly, since malformed JSON cannot be embedded as a raw JSON fixture value.
+Together these cover all six event types, incorrect scalar types, invalid/missing
+IDs, identical/conflicting duplicate `id` fields, forbidden account identifiers
+and invalid/unknown fields. Duplicate fields within one object are rejected;
+repeated delivery of a valid event in separate messages preserves its ID and is
+accepted for consumer deduplication. That test models the client ID check; it does
+not establish that React implements it. Gateway tests
 exercise explicit user/faculty subscription attempts; all client application
 messages are rejected, including binary messages, empty messages and JSON
 `subscribe` commands. Only standard WebSocket ping/pong/close control frames are
