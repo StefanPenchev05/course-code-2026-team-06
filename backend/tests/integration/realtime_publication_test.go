@@ -59,6 +59,7 @@ type publicationFixture struct {
 	servers   []*httptest.Server
 	processed []chan string
 	observers map[int]publicationObserver
+	cleanup   func(func())
 }
 
 type publicationWant struct {
@@ -78,10 +79,10 @@ func bookingPublication(id string, student, tutor, coordinator int) publicationW
 func newPublicationFixture(t *testing.T) *publicationFixture {
 	t.Helper()
 	isolatedRealtimeDatabase(t)
-	f := &publicationFixture{bookingFixture: newBookingFixture(t), observers: map[int]publicationObserver{}}
+	f := &publicationFixture{bookingFixture: newBookingFixture(t), observers: map[int]publicationObserver{}, cleanup: t.Cleanup}
 	f.store, f.bus = outboxpg.New(f.db), fanout.New(f.redis)
 	tutors := tutoring.New(tutoringpg.New(f.db, tutoringpg.Dependencies{}), catalog.New(catalogpg.New(f.db)), nil)
-	routing := app.NewRouting(schedulingpg.NewBooking(f.db, schedulingpg.BookingDependencies{}), tutors, fanout.NewWatches(f.redis))
+	routing := app.NewRouting(schedulingpg.NewBooking(f.db, schedulingpg.BookingDependencies{}), tutors, fanout.NewWatches(f.redis), domainRouting(f.bookingFixture))
 	mux := f.a.handler.(*http.ServeMux)
 	now := func() time.Time { return time.UnixMicro(f.clock.Load()) }
 	schedulinghttp.New(scheduling.New(schedulingpg.New(f.db, identitypg.LockStudent), tutors, now), slog.Default()).RegisterRoutes(mux, f.auth)
@@ -152,7 +153,7 @@ func (f *publicationFixture) connect(t *testing.T, apiIndex, actor int) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = c.CloseNow() })
+	f.cleanup(func() { _ = c.CloseNow() })
 	f.observers[actor] = publicationObserver{f.hubs[apiIndex], realtimeRead(c)}
 }
 
@@ -433,7 +434,8 @@ func TestRealtimeMutationPublication(t *testing.T) {
 		f.a.call(t, 404, "POST", policyPath(id), policyReason, f.cookie[bookingHomeCoordinator])
 		f.expect(t)
 		f.a.call(t, 200, "POST", policyPath(id), policyReason, f.cookie[bookingCoordinator])
-		f.expect(t, bookingPublication(id, bookingStudent, bookingTutor, bookingCoordinator), availability)
+		f.expect(t, bookingPublication(id, bookingStudent, bookingTutor, bookingCoordinator), availability,
+			f.caseWant(t, "policy", bookingCoordinator))
 		f.count(t, 0, "SELECT count(*) FROM session_participant_blocks WHERE session_id=$1", id)
 		f.count(t, 1, `SELECT count(*) FROM session_status_history h JOIN tutoring_sessions s ON s.id=h.session_id WHERE s.id=$1
 			AND h.from_status='ACCEPTED' AND h.to_status='CANCELLED' AND h.cancellation_origin='COORDINATOR_POLICY'
@@ -457,7 +459,8 @@ func TestRealtimeMutationPublication(t *testing.T) {
 			t.Fatal("suspension did not cancel both sessions", response)
 		}
 		f.disconnected(t, bookingStudent)
-		wants := []publicationWant{availability}
+		wants := []publicationWant{availability, {app.AccountAccessChanged, "", nil},
+			{app.CoordinationChanged, response["decision_id"].(string), []int{bookingHomeCoordinator}}}
 		for _, id := range ids {
 			wants = append(wants, publicationWant{app.BookingChanged, id, []int{bookingTutor, bookingCoordinator}})
 			f.count(t, 0, "SELECT count(*) FROM session_participant_blocks WHERE session_id=$1", id)

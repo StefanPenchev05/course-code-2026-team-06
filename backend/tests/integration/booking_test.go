@@ -108,7 +108,10 @@ func newBookingFixture(t *testing.T) *bookingFixture {
 		Student: identitypg.LockStudent, Session: schedulingpg.LockStudentSession,
 	}), f.service)
 	feedbackhttp.New(feedbackService, slog.Default()).RegisterRoutes(mux, auth)
-	tutoringService := tutoring.New(tutoringpg.New(db, tutoringpg.Dependencies{}), catalog.New(catalogpg.New(db)), feedbackService)
+	tutoringService := tutoring.New(tutoringpg.New(db, tutoringpg.Dependencies{
+		Catalog:     func(tx pgx.Tx) catalog.AcademicCatalog { return catalog.New(catalogpg.InTransaction(tx)) },
+		LockStudent: identitypg.LockStudent, LockCoordinatorFaculty: identitypg.LockCoordinatorFaculty,
+	}), catalog.New(catalogpg.New(db)), feedbackService)
 	tutoringhttp.New(tutoringService, slog.Default()).RegisterRoutes(mux, auth)
 	attendance := coordpg.NewAttendance(db, coordpg.AttendanceDependencies{
 		LockStudent:            identitypg.LockStudent,

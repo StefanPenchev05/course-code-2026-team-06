@@ -14,7 +14,7 @@ type Outbox struct{ db *pgxpool.Pool }
 
 func New(db *pgxpool.Pool) *Outbox { return &Outbox{db} }
 func (s *Outbox) Check(ctx context.Context) error {
-	_, err := s.db.Exec(ctx, `SELECT id,event_type,entity_id,producer_xid,claim_token,lease_until,dispatched_at FROM realtime_events LIMIT 0`)
+	_, err := s.db.Exec(ctx, `SELECT id,event_type,entity_id,resource_kind,producer_xid,claim_token,lease_until,dispatched_at FROM realtime_events LIMIT 0`)
 	return err
 }
 
@@ -37,6 +37,9 @@ func (s *Outbox) Claim(ctx context.Context, lease time.Duration) (app.Claim, boo
 		return c, false, nil
 	}
 	c.Version = 1
+	if c.Type == app.AccountAccessChanged {
+		c.EntityID = ""
+	}
 	c.OccurredAt = at.UTC().Format(time.RFC3339Nano)
 	return c, err == nil, err
 }
@@ -45,8 +48,17 @@ func (s *Outbox) Get(ctx context.Context, id string) (app.Event, error) {
 	var at time.Time
 	err := s.db.QueryRow(ctx, `SELECT id::text,event_type,entity_id::text,occurred_at FROM realtime_events WHERE id=$1`, id).Scan(&e.ID, &e.Type, &e.EntityID, &at)
 	e.Version = 1
+	if e.Type == app.AccountAccessChanged {
+		e.EntityID = ""
+	}
 	e.OccurredAt = at.UTC().Format(time.RFC3339Nano)
 	return e, err
+}
+
+// Route is a private lookup, separate from the validated public Event projection.
+func (s *Outbox) Route(ctx context.Context, id string) (target, kind string, err error) {
+	err = s.db.QueryRow(ctx, `SELECT entity_id::text,resource_kind FROM realtime_events WHERE id=$1`, id).Scan(&target, &kind)
+	return
 }
 func (s *Outbox) Dispatched(ctx context.Context, c app.Claim) error {
 	tag, err := s.db.Exec(ctx, `UPDATE realtime_events SET dispatched_at=statement_timestamp(),claim_token=NULL,lease_until=NULL,last_error=NULL

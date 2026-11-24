@@ -316,6 +316,29 @@ def check_realtime_migration(psql, migrate):
     run(*migrate, "up", "1")
 
 
+def check_domain_realtime_migration(psql, migrate):
+    existing = EXPECTED_TABLES | {"tutor_offering_deactivations", "oidc_identities"}
+    def snapshot():
+        return {table: output(*psql, "-Atc", f"SELECT md5(coalesce(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]')::text) FROM {table} t")
+                for table in sorted(existing)}
+    before = snapshot()
+    run(*migrate, "up", "1")
+    if snapshot() != before or output(*psql, "-Atc", "SELECT count(*) FROM realtime_events") != "0":
+        raise RuntimeError("domain event migration modified/backfilled business records")
+    run(*psql, "-q", "-c", "SELECT enqueue_realtime_event('account.access_changed',tutti_test.fixture_id(10))")
+    down = (MIGRATIONS / "000018_realtime_domain_events.down.sql").read_text()
+    rejected = subprocess.run([*psql, "-q", "-c", down], text=True, capture_output=True, timeout=30)
+    if rejected.returncode == 0 or "drain domain realtime events" not in rejected.stderr:
+        raise RuntimeError("domain rollback did not protect pending work")
+    run(*psql, "-q", "-c", "UPDATE realtime_events SET dispatched_at=now()")
+    run(*migrate, "down", "1")
+    if snapshot() != before:
+        raise RuntimeError("domain rollback changed business/audit/email records")
+    run(*migrate, "up", "1")
+    if snapshot() != before:
+        raise RuntimeError("domain reapply changed business records")
+
+
 def main():
     network = os.environ.get("TUTTI_TEST_DOCKER_NETWORK")
     network_args = ["--network", network, "--network-alias", "schema-postgres"] if network else ["-p", "127.0.0.1::5432"]
@@ -385,6 +408,7 @@ def main():
         check_audit_migration(psql, migrate)
         check_oidc_binding_migration(psql, migrate)
         check_realtime_migration(psql, migrate)
+        check_domain_realtime_migration(psql, migrate)
         check_concurrency(psql)
         # Only this disposable runner generated these ephemeral invalidations.
         run(*psql, "-q", "-c", "DELETE FROM realtime_events")

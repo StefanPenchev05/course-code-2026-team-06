@@ -176,7 +176,7 @@ func TestRealtimeSchedulingOutbox(t *testing.T) {
 	tutors := tutoring.New(tutoringpg.New(f.db, tutoringpg.Dependencies{}), catalog.New(catalogpg.New(f.db)), nil)
 	queries := schedulingpg.NewBooking(f.db, schedulingpg.BookingDependencies{})
 	watches := fanout.NewWatches(f.redis)
-	routing := app.NewRouting(queries, tutors, watches)
+	routing := app.NewRouting(queries, tutors, watches, domainRouting(f))
 	mux := f.a.handler.(*http.ServeMux)
 	realtimehttp.RegisterWatches(mux, f.auth, routing)
 	schedulinghttp.New(scheduling.New(schedulingpg.New(f.db, identitypg.LockStudent), tutors, func() time.Time { return time.UnixMicro(f.clock.Load()) }), slog.Default()).RegisterRoutes(mux, f.auth)

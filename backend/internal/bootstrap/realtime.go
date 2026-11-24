@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	coordinationpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/coordination/infrastructure/postgres"
+	identitypg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/postgres"
 	identityhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/interfaces/http"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/realtime"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/worker"
@@ -16,6 +18,7 @@ import (
 	fanoutredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/realtime/infrastructure/redis"
 	realtimehttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/realtime/interfaces/http"
 	schedulingpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/infrastructure/postgres"
+	tutoringpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/tutoring/infrastructure/postgres"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -42,14 +45,16 @@ func startRealtime(ctx context.Context, pool *pgxpool.Pool, client *redis.Client
 	defer cancel()
 	store := outboxpg.New(pool)
 	if err := store.Check(startup); err != nil {
-		return nil, errors.New("realtime outbox unavailable; apply migration 17 before API startup")
+		return nil, errors.New("realtime outbox unavailable; apply migration 18 before API startup")
 	}
 	bus := fanoutredis.New(client)
 	subscription, err := bus.Subscribe(startup)
 	if err != nil {
 		return nil, errors.New("could not subscribe to realtime fanout")
 	}
-	routing := app.NewRouting(schedulingpg.NewBooking(pool, schedulingpg.BookingDependencies{}), visibility, fanoutredis.NewWatches(client))
+	routing := app.NewRouting(schedulingpg.NewBooking(pool, schedulingpg.BookingDependencies{}), visibility, fanoutredis.NewWatches(client), app.DomainRouting{
+		Metadata: store, Tutoring: tutoringpg.New(pool, tutoringpg.Dependencies{}), Coordination: coordinationpg.NewRealtime(pool), Identity: identitypg.New(pool),
+	})
 	realtimehttp.RegisterWatches(mux, identity, routing)
 	receiver := app.NewReceiver(store, routing, hub)
 	dispatcher := app.NewDispatcher(store, bus)

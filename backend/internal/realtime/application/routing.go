@@ -23,10 +23,15 @@ type Routing struct {
 	bookings   scheduling.RealtimeQueries
 	visibility Visibility
 	watches    Watches
+	domains    *DomainRouting
 }
 
-func NewRouting(bookings scheduling.RealtimeQueries, visibility Visibility, watches Watches) *Routing {
-	return &Routing{bookings, visibility, watches}
+func NewRouting(bookings scheduling.RealtimeQueries, visibility Visibility, watches Watches, domains ...DomainRouting) *Routing {
+	r := &Routing{bookings: bookings, visibility: visibility, watches: watches}
+	if len(domains) > 0 {
+		r.domains = &domains[0]
+	}
+	return r
 }
 
 func (r *Routing) Watch(ctx context.Context, p domain.Principal, tutor string) (time.Time, error) {
@@ -70,7 +75,7 @@ func (r *Routing) Recipients(ctx context.Context, e Event) ([]string, error) {
 		}
 		return ids, nil
 	default:
-		return nil, ErrUnknownType
+		return r.domainRecipients(ctx, e)
 	}
 }
 func (r *Routing) Authorize(ctx context.Context, p domain.Principal, e Event) (bool, error) {
@@ -101,7 +106,7 @@ func (r *Routing) Authorize(ctx context.Context, p domain.Principal, e Event) (b
 		}
 		return r.visibility.CanViewAvailability(ctx, p, e.EntityID)
 	default:
-		return false, ErrUnknownType
+		return r.authorizeDomain(ctx, p, e)
 	}
 }
 

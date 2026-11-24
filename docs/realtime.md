@@ -1,6 +1,6 @@
 # Real-time updates and WebSockets
 
-> **Status:** version-1 contract, authenticated gateway and scheduling delivery implemented for #85–#87 on `feat/realtime-websocket-foundation`, 2026-11-23. Booking/availability publication and worker-to-API delivery are described in [realtime delivery](realtime-delivery.md); other module publishers and React integration remain future work. Backend/frontend owner review of the contract remains required; automated tests do not constitute that agreement.
+> **Status:** Version-1 contract, authenticated gateway and all six backend event categories implemented for #85–#88 on `feat/realtime-websocket-foundation`, 2026-11-24. Producer coverage and current recipient policies are described in [realtime delivery](realtime-delivery.md). React integration remains future work. Backend/frontend owner review of the contract remains required; automated tests do not constitute that agreement.
 >
 > **Tracking:** #84; backend #85–#89; frontend #90–#94. Relevant application modules: Identity, Scheduling, Tutoring, Coordination and Feedback.
 
@@ -33,10 +33,11 @@ The example IDs are illustrative; do not infer their existence in the database. 
 
 ## Event and authorization matrix
 
-All six types below are defined and validated by the version-1 contract. Scheduling
-currently publishes **only `booking.changed` and `availability.changed`** through
-the implemented outbox and Redis fanout (#87). The other four categories require
-producer integration (#88); defining their types does not make those events fire.
+All six types below are defined and validated by the version-1 contract. Migration
+17 captures `booking.changed` and `availability.changed` through the implemented
+outbox and Redis fanout (#87). Migration 18 adds the other four
+categories for existing Tutoring, Coordination, Feedback and Identity mutations
+(#88); it does not introduce missing administrative workflows.
 The frontend invalidations in this matrix are requirements for #90–#94, not
 implemented React behavior.
 
@@ -45,16 +46,16 @@ implemented React behavior.
 | `booking.changed` | Request, accept/decline, cancel, expiry, completion, attendance correction, policy/suspension cancellation | Session's student and tutor; coordinator only when currently authorized for the applicable session/faculty workflow | Student/tutor session lists, request queues, session detail, available actions |
 | `availability.changed` | Tutor availability edits, slot changes, reservation creation/release | Owning tutor, and only validated subscribers permitted to view that tutor's public availability | Tutor editor, free slots, tutor profile/discovery |
 | `tutor_application.changed` | Application submission, decision, offering eligibility changes | Applicant and coordinator currently authorized for the relevant application/faculty | Application status, review queue, active tutor offerings |
-| `coordination.changed` | Issue reports/resolutions, adjudication, flags and authorized disciplinary actions | Faculty-scoped coordinators and affected participants **only when authorized to the corresponding view** | Authorized issue/attendance queues and coordinator summaries |
-| `activity.changed` | Completion, feedback, attendance correction affecting derived totals | Tutor and validated subscribers to the relevant publicly visible activity projection | Tutor activity counts, completed hours, ratings |
-| `account.access_changed` | Verification, role/faculty/permission change, suspension/reinstatement | Affected account, and authorized administration views as applicable | Current profile, auth state, protected queries; close forbidden views |
+| `coordination.changed` | Issue reports/resolutions, adjudication, flags and authorized disciplinary actions | Current coordinator under the case-specific stored-faculty/home-faculty policy in the delivery guide | Authorized issue/attendance queues and coordinator summaries |
+| `activity.changed` | Completion, feedback, attendance correction affecting derived totals | Tutor, current home-faculty monitoring coordinator, authorized public-profile viewers with live watches | Tutor activity counts, completed hours, ratings |
+| `account.access_changed` | Verification, role/faculty/permission change, suspension/reinstatement | Affected account only; administration receives separately authorized `coordination.changed` | Current profile, auth state, protected queries; close forbidden views |
 
 All recipients must be resolved **server-side** from authoritative records/permissions. No global broadcast of booking IDs, private grades, feedback comments, email addresses, disciplinary reasons or evidence. A socket may receive more than one event type; the client must invalidate only views it is authorized to refetch. Server-side subscription requests (if implemented) must validate access to **every requested topic**; never trust user/faculty IDs supplied by the browser.
 
 ## Delivery and transaction semantics
 
 1. A domain application service validates permissions and runs a PostgreSQL transaction (existing constraints remain authoritative).
-2. Scheduling persistence triggers capture the two implemented event categories in the dedicated PostgreSQL `realtime_events` outbox. These rows commit atomically with business changes, history and email notifications as required by the existing workflow.
+2. Domain persistence triggers capture all six implemented event categories in the dedicated PostgreSQL `realtime_events` outbox. These rows commit atomically with business changes, history and email notifications as required by the existing workflow.
 3. API dispatchers claim committed rows and publish their stable event IDs through Redis pub/sub. Each API subscriber reloads the event, resolves current recipients and queues it through its local hub with current resource authorization. The separate expiration worker's existing PostgreSQL writes use the same capture triggers.
 4. The frontend must receive an invalidation and refetch the authoritative HTTP endpoint, preserving forms, filters and focus. This React integration remains unimplemented (#90–#94).
 
@@ -103,9 +104,9 @@ The current branch contains the React HTTP client, but no application WebSocket 
 - [x] Contract fixtures/tests cover all six types, truncated/trailing JSON, incorrect scalar types, invalid/missing IDs, duplicate fields and event delivery, forbidden account identifiers, and unknown versions/types (#85). Unauthorized subscription messages are covered by gateway tests (#86).
 - [x] Handshake rejects absent session, expired/revoked/suspended session, invalid Origin and untrusted scope (#86).
 - [x] Normal REST requests retain timeouts while a persistent WebSocket survives the request timeout (#86).
-- [x] Scoped gateway tests isolate users/coordinators/faculties and cover slow clients, heartbeat and shutdown (#86). Domain-specific recipient policies and production load remain #87–#89.
-- [x] Backend commit/rollback, affected-socket delivery and reconnect/refetch are covered for Scheduling (#87). React tab behavior and other module publishers remain #88/#90–#94.
-- [x] Worker-originated expiration, suspension/policy cancellation capture and attendance corrections generate scheduling events (#87). Broader coordination/account event publishers remain #88.
+- [x] Scoped gateway tests isolate users/coordinators/faculties and cover slow clients, heartbeat and shutdown (#86). Domain-specific policies are implemented under #87/#88; production load remains #89.
+- [x] Backend commit/rollback, affected-socket delivery and reconnect/refetch are covered for Scheduling (#87). Other module publishers are covered under #88; React tab behavior remains #90–#94.
+- [x] Worker-originated expiration, suspension/policy cancellation capture and attendance corrections generate scheduling events (#87). Additional coordination/account/activity publishers are implemented by migration 18 (#88).
 - [ ] Browser e2e uses independent student/tutor/coordinator contexts; no reload is needed; reconnect resync works (#90–#94).
 - [ ] The relevant Go race/integration and frontend tests run in CI; document any environment limitations.
 
@@ -250,8 +251,9 @@ Public availability viewers register authorized, expiring watches through HTTP;
 these leases are shared across API instances. Client WebSocket application
 messages remain unsupported. The delivery guide defines the new watch endpoint,
 claim/retry semantics, migration ordering, rollback guard, tests and exact handoff
-for frontend #90 and reliability #89. Other producers (#88) must preserve these
-post-commit, minimal-payload and server-owned authorization boundaries.
+for frontend #90 and reliability #89. Migration 18 extends the same infrastructure
+for #88, preserving the v1 envelope and gateway. See the delivery guide for
+resource-specific policies and the private target of the entity-less account event.
 
 ## Verification and remaining review
 

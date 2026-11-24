@@ -1,7 +1,7 @@
-# Scheduling realtime delivery (#87)
+# Backend realtime delivery (#87–#88)
 
-The API now publishes committed booking and availability invalidations through
-migration **17**, a dedicated PostgreSQL outbox, and Redis fanout. Existing
+The API publishes all six v1 invalidation categories through migrations **17–18**,
+the existing PostgreSQL outbox, and Redis fanout. Existing
 Scheduling/Coordination workflows, reservation constraints, audit history and the
 email notification outbox are preserved. No React client is implemented here.
 
@@ -46,10 +46,10 @@ Routing is deliberately outside these capture triggers.
 A learner may also teach: booking as a student removes time from that learner's
 own tutor free-time projection, so both participants' relevant tutor windows are
 invalidated. Public watchers receive **only tutor identifiers**, never session IDs.
-Completion/no-show invalidates booking views here; standalone tutor activity,
-feedback, application and account publishers remain #88.
+Completion/no-show also invalidates activity when the completed-session aggregate
+changes. Additional domain capture and recipient policies are listed below.
 
-Capture coalesces on `(producer_xid,event_type,entity_id)` using PostgreSQL's full
+Capture coalesces on `(producer_xid,event_type,resource_kind,entity_id)` using PostgreSQL's full
 `xid8` transaction identity. Replacing fifty slots in one transaction yields one
 availability event per affected tutor. The first UUID and occurrence timestamp
 are retained. Separate committed transactions produce separate events. A rolled
@@ -57,14 +57,81 @@ back transaction or savepoint leaves no deliverable row. Existing records are
 not backfilled on migration. Session metadata updates that do not change status
 are not separate producers; all current booking lifecycle operations change status.
 
-## Durable outbox, claims and retries
+## Domain producers and recipients (#88)
+
+Migration 18's additional producers and current read policies are:
+
+| Existing mutation | Event / public `entityId` | Authorized recipients |
+| --- | --- | --- |
+| Tutor application submission, approval, rejection | `tutor_application.changed` / application UUID | Active student owner, including restricted access to own history; current coordinator of the application's **stored faculty** |
+| Offering activation/deactivation, replacement qualification, eligibility reconciliation | `tutor_application.changed` / associated application UUID (both evidence pointers if replaced) | Same application read policy; no public application-ID broadcast |
+| General issue submission/resolution | `coordination.changed` / issue UUID | Current coordinator of the issue's **stored faculty**; the HTTP API has no reporter case-read endpoint |
+| Attendance report submission/confirmation/rejection | `coordination.changed` / report UUID | Current coordinator of the session's **stored tutor faculty** |
+| Confirmed no-show or late-cancellation violation | `coordination.changed` / violation UUID | Current coordinator of the violation's **stored home faculty**, matching audit access |
+| Semester threshold flag creation | `coordination.changed` / flag UUID | Current coordinator of the flag's **stored faculty**; flagging still never suspends automatically |
+| Coordinator policy cancellation | `coordination.changed` / session status-history UUID | Current coordinator of the session's stored faculty; #87 capture remains unchanged |
+| Suspension/reinstatement decision | `coordination.changed` / suspension decision UUID | Current home-faculty coordinator, while that faculty also matches the decision's stored audit authority; a later move does not transfer private historical IDs |
+| Verification submission/rejection/resubmission/approval | `coordination.changed` / verification UUID | Current coordinator of the verification's **stored faculty** |
+| Session completion/correction out of `COMPLETED`; feedback insertion | `activity.changed` / tutor UUID | Tutor with current tutor privileges; current **home-faculty** monitoring coordinator; verified viewers with a live tutor watch and current public-profile visibility |
+| Verification, suspension/reinstatement, closure, student membership/program, coordinator assignment, tutor profile role changes | `account.access_changed` / **omitted** | Affected account only, if the socket remains eligible |
+
+The enqueue overload `enqueue_realtime_event(text,uuid,text)` stores a private
+coordinator resource kind. Including that kind in the coalescing key prevents
+equal UUIDs in different case tables from selecting the wrong authority. Tutoring,
+Coordination and Identity expose narrow application read ports wired by bootstrap.
+Candidates and resource authorization are reread during delivery; the hub reloads
+Identity access. Browser-provided IDs never grant authority.
+
+An approval's application update and offering insert coalesce into one application
+event. Multiple account changes in a transaction also coalesce. Completed-session
+no-show corrections legitimately produce existing booking/availability events,
+case/violation/possible flag events, and activity invalidation. Activity remains
+derived from authoritative sessions/feedback; there are no new counters. No grades,
+private comments, feedback authors, evidence, reasons, meeting links, emails or
+tokens enter events. Private account targets are absent from `Event` and `Claim`.
+
+The existing gateway closes sockets when the checked access projection changes,
+including role upgrades. Final access-event delivery is not guaranteed and never
+bypasses suspension checks. Quiet sockets retain the **15-second** revalidation
+interval and **3-second** authentication-check budget: nominally up to about
+18 seconds after a just-missed check. Per-event checks also apply; already
+authorized/in-flight bytes cannot be recalled. This is not instantaneous revocation.
+
+### Refetch contract and deferred work (#90/#93)
+
+| Event | Existing HTTP views to refetch when visible and authorized |
+| --- | --- |
+| `tutor_application.changed` | `/api/v1/tutor-applications/me`, `/tutor-applications/{id}`, `/coordinator/tutor-applications`, review detail, own tutor profile and coordinator monitoring |
+| `coordination.changed` | Relevant `/api/v1/coordinator/issues`, `/attendance-reports`, `/verifications`, flagged-user, audit-history and monitoring views |
+| `activity.changed` | `/api/v1/tutors/me/activity`, `/tutors/{id}`, visible discovery/rating results, `/coordinator/tutors/{id}/feedback` and monitoring |
+| `account.access_changed` | `/api/v1/auth/me`, then protected queries and authorized watches |
+
+Coordinator `entityId` denotes a case/audit record, not a user or faculty. Its
+private kind is absent on wire: refresh visible authorized queues rather than
+guessing a detail endpoint from the UUID. Public rating viewers reuse the existing
+availability-watch lease; no new subscription message is introduced. Every
+successful connection still requires HTTP refetch, even when no event arrives.
+Shared React handling is #90, coordinator integration #93, browser E2E #94.
+Backend/frontend human contract approval remains pending.
+
+Verification resubmission can change a restricted student's program. The existing
+transaction-bound Tutoring eligibility adapter captures deactivations, but a general
+verified-student program-change endpoint (#74) and new role/SSO administration are
+outside #88. Capture supports trusted assignment writes without introducing such
+workflows. The actual worker performs expiration and SMTP delivery; neither changes
+these four categories. Existing #87 expiration events cover session queues, and its
+separate-process regression remains. No second worker dispatcher is added.
+
+### Dispatch and recovery
 
 `realtime_events` contains a stable UUID, transaction ID, type, minimal entity UUID,
 occurrence time, retry time, attempt count, claim token, lease, dispatch timestamp
 and a fixed operational failure category. The event identity/payload is immutable.
 It contains no grades, messages, emails, reasons, meeting details or saved recipient
-entitlements. Only the two scheduling event types are produced by migration 17;
-the version-1 WebSocket envelope stays unchanged.
+entitlements. Migration 17 captures the two scheduling categories; migration 18 captures the
+remaining four. The version-1 WebSocket envelope stays unchanged. Private
+`resource_kind` disambiguates coordinator record types; account `entity_id` is
+a private target, removed from both public event lookups and dispatcher claims.
 
 Every API process runs a dispatcher immediately, then polls once per second.
 A batch runs for at most twenty seconds and handles at most twenty rows. Rows are
@@ -164,14 +231,20 @@ so automatic live refresh is **not yet a browser-visible feature**.
 
 ## Deployment, rollback and operations
 
-Apply migration 17 before the updated API. The API fails safely at startup when
+Apply migrations through **18** before the updated API. The API fails safely at startup when
 the outbox schema or initial subscription is unavailable. No new environment
 variables or dependencies are needed: dispatch and watch traffic use the existing
 `DATABASE_URL`, `REDIS_URL` and `PUBLIC_ORIGIN`. REST timeouts and the `/ws` bypass
 remain unchanged. Worker SMTP setup remains independent of realtime delivery.
 
+Use a coordinated API rollout: stop migration-17-only API instances before
+enabling the new producers and start the updated instances after migration 18.
+Old routers cannot process the four new categories and would force socket resync.
+Likewise downgrade the API only after stopping writers, draining and rolling back
+18. This release does not support mixed old/new routing versions.
+
 Runtime database writers must be permitted to INSERT the outbox and read the
-capture functions' referenced scheduling/tutor tables. API dispatchers also need
+capture functions' referenced domain tables. API dispatchers also need
 SELECT/UPDATE on the outbox. Do not expose PostgreSQL or the Redis pub/sub/watch
 namespace to browser clients. Redis pub/sub is global across Redis database numbers: use a Redis instance dedicated to this Tutti deployment until #89 adds explicit deployment channel namespacing. Separate database indexes alone do not isolate pub/sub channels. Production Redis ACLs must cover the required
 pub/sub and sorted-set/Lua operations, alongside existing session commands.
@@ -182,7 +255,10 @@ selection. #89 must establish retention, metrics, operational alerts, outage/loa
 limits and throughput sizing. Event IDs are not a business audit substitute.
 The email notification queue and its SMTP at-least-once contract are untouched.
 
-The down migration refuses to discard pending realtime rows. Stop API/worker
+Migration 18 down refuses pending domain events, removes dispatched domain
+invalidations and restores migration 17 capture/coalescing; it retains scheduling
+events and all business/audit/email records. Migration 17 down refuses any
+pending realtime row before removing the outbox. Stop API/worker
 writers, drain pending publication and review/back up retained outbox data before
 rolling back. It removes only realtime tables/functions/triggers; all scheduling,
 reservation, history and email data remain. Do not delete pending rows in a shared
@@ -267,3 +343,45 @@ read port and PostgreSQL implementation; `platform/realtime.Hub.Resync`; bootstr
 runtime wiring; the realtime scheduling/bootstrap tests, existing cancellation
 assertions and migration validation. No production business workflow, frontend
 component, email adapter, worker configuration or dependency version is changed.
+
+## Windows PowerShell verification (#88)
+
+From the repository root, these commands use the existing Dockerfile test target.
+They do not load/overwrite `.env`, start SMTP, change Compose services or remove
+existing volumes. Rebuild this image after Go or migration/test changes.
+
+```powershell
+Push-Location backend
+try {
+    go test -race ./...
+    if ($LASTEXITCODE -ne 0) { throw 'Go race tests failed' }
+    go vet ./...
+    if ($LASTEXITCODE -ne 0) { throw 'Go vet failed' }
+    go build ./...
+    if ($LASTEXITCODE -ne 0) { throw 'Go build failed' }
+} finally { Pop-Location }
+
+docker build --target test -t tutti-realtime88-tests ./backend
+if ($LASTEXITCODE -ne 0) { throw 'Test image build failed' }
+$testNetwork = 'tutti-realtime88-' + [guid]::NewGuid().ToString('N')
+docker network create $testNetwork
+if ($LASTEXITCODE -ne 0) { throw 'Test network creation failed' }
+try {
+    docker run --rm --network $testNetwork --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock -e "TUTTI_TEST_DOCKER_NETWORK=$testNetwork" tutti-realtime88-tests bash tests/integration/test_identity.sh -race -timeout 180s
+    if ($LASTEXITCODE -ne 0) { throw 'Integration tests failed' }
+    docker run --rm --network $testNetwork --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock -e "TUTTI_TEST_DOCKER_NETWORK=$testNetwork" tutti-realtime88-tests python3 tests/integration/test_schema.py
+    if ($LASTEXITCODE -ne 0) { throw 'Schema tests failed' }
+} finally { docker network rm $testNetwork }
+git diff --check
+git status --short --branch
+git diff --stat
+```
+
+For focused delivery checks, append `-run '^TestRealtime'` to the integration
+runner invocation. The runner creates and cleans up disposable PostgreSQL 17 and
+Redis instances; each realtime fixture also uses its own database. Native tests
+without the test service URLs skip real-service integration. The child-process
+expiration helper skips in the parent suite and runs only when invoked by its
+process-separated test. Worker build/start/log inspection commands and safe local
+SMTP testing remain in [workers.md](workers.md); the normal worker need not be
+running to execute these checks.

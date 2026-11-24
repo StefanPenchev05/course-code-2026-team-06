@@ -256,3 +256,16 @@ Migration [16](../../backend/migrations/000016_oidc_identities.up.sql) adds a se
 ## Migration 17: transactional scheduling invalidations
 
 `000017_realtime_outbox` adds the dedicated `realtime_events` table (35 application tables total), immutable stable payloads, per-transaction coalescing and scheduling/reservation capture triggers. It adds no historical backfill and changes no business constraints, email rows or audit records. Apply before updated API startup. Dispatch uses expiring ownership-token claims with SKIP LOCKED; Redis publication occurs after commit. Down refuses pending events; stop writers and drain publication before rollback. See [delivery architecture and verification](../realtime-delivery.md).
+
+## Migration 18: domain invalidations (#88)
+
+`000018_realtime_domain_events` extends migration 17's existing outbox and capture
+functions to the remaining four v1 types. Private resource kinds disambiguate
+case IDs, and account targets are omitted from public events. Coalescing remains
+per transaction/type/resource, with stable IDs and immutable private metadata.
+Apply through 18 before starting the updated API. The down migration locks the
+outbox, refuses pending domain events, removes only dispatched domain invalidations
+and its capture triggers, and restores migration 17 compatibility. It preserves
+business, audit, email and scheduling event rows. Stop writers/dispatchers and
+drain before downgrade; do not bypass the pending-work guard. See [delivery
+coverage and verification](../realtime-delivery.md).
