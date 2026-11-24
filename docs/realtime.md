@@ -189,7 +189,11 @@ no new environment variables or migrations are required.
 Sessions are checked before upgrade, immediately after upgrade, every 15 seconds
 on quiet connections, and again before each event's authorization/write. The
 quiet-socket revocation detection budget is approximately 18 seconds plus close
-grace and scheduling overhead, not instantaneous logout propagation. Each event
+grace and scheduling overhead, not instantaneous logout propagation or a strict
+wall-clock SLA. This is up to one 15-second interval before the next check, plus
+up to three seconds for that check; context-aware adapters must stop when their
+budget expires. The post-upgrade check closes a connection whose access changed
+during the handshake, even if the browser has already received HTTP 101. Each event
 uses a fresh principal. A verification, student/tutor role, program, coordinator
 faculty, suspension or closure transition closes the socket so the client must
 refresh its auth context. Revoking one browser session closes only sockets using
@@ -256,6 +260,15 @@ recipient policy, multiple tabs, revoked/expired/suspended sessions, permission
 changes, malformed/subscription input, limits, backpressure, heartbeat, concurrent
 cleanup and bounded shutdown. Bootstrap tests prove REST 503 timeouts and sockets
 surviving both HTTP IO deadlines and the actual ten-second REST duration.
+`internal/platform/realtime/hub_races_test.go` uses explicit upgrade/policy
+barriers to cover shutdown with a reserved handshake or in-flight authorization,
+concurrent publication, repeated connection closures and client cleanup. It also
+covers revocation, suspension and faculty changes between pre- and post-upgrade
+checks (both quiet sockets and queued events), stale subscription attempts, and
+user/faculty resource access lost while an event is queued. Handler-completion
+signals and bounded shutdown assert that reservations are removed and the
+handler-owned reader/watchdog goroutines are joined. FIFO sentinel events prove
+denied events were dropped without relying on arbitrary negative sleep windows.
 `tests/integration/realtime_test.go` uses native sockets, real Redis sessions and
 real migrated PostgreSQL accounts: cookie handling, coordinator faculty isolation,
 logout, real Redis TTL expiration, suspension, faculty change and unavailable
