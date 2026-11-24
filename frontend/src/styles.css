@@ -1,0 +1,142 @@
+/* Minimal base styles. Design tokens live in :root so the UI/UX work can restyle everything here. */
+:root {
+  --color-bg: #f7f7f9;
+  --color-surface: #ffffff;
+  --color-text: #1d1d24;
+  --color-muted: #5b5b6b;
+  --color-primary: #3b3fc4;
+  --color-primary-text: #ffffff;
+  --color-border: #d6d6e0;
+  --color-error: #b3261e;
+  --color-error-bg: #fdecea;
+  --color-info-bg: #e8f0fe;
+  --color-success-bg: #e6f4ea;
+  --color-warning-bg: #fff4e5;
+  --radius: 8px;
+  --space: 1rem;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+  color: var(--color-text);
+  background: var(--color-bg);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+h1 { font-size: 1.75rem; margin: 0 0 var(--space); }
+a { color: var(--color-primary); }
+:focus-visible { outline: 3px solid var(--color-primary); outline-offset: 2px; }
+
+.skip-link { position: absolute; left: -999px; top: 0; }
+.skip-link:focus { left: var(--space); top: var(--space); background: var(--color-surface); padding: 0.5rem; z-index: 10; }
+
+.app-header {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space);
+  padding: 0.75rem var(--space); background: var(--color-surface); border-bottom: 1px solid var(--color-border);
+}
+.app-header__brand { font-weight: 700; font-size: 1.25rem; text-decoration: none; color: var(--color-text); }
+.app-header__nav { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1rem; }
+.app-header__nav a { text-decoration: none; padding: 0.25rem 0; }
+.app-header__nav a.active { font-weight: 600; border-bottom: 2px solid var(--color-primary); }
+
+.app-main { max-width: 64rem; margin: 0 auto; padding: calc(var(--space) * 1.5) var(--space); }
+.app-main:focus { outline: none; }
+.page--narrow { max-width: 26rem; margin: 0 auto; }
+.page-loader { display: flex; justify-content: center; padding: 3rem 0; }
+
+.form { display: flex; flex-direction: column; gap: var(--space); margin-bottom: var(--space); }
+.field { display: flex; flex-direction: column; gap: 0.25rem; }
+.field__label { font-weight: 600; }
+.field__hint { margin: 0; color: var(--color-muted); font-size: 0.9rem; }
+.field__input {
+  font: inherit; padding: 0.6rem 0.75rem; border: 1px solid var(--color-border); border-radius: var(--radius);
+  background: var(--color-surface); min-height: 44px;
+}
+.field--invalid .field__input { border-color: var(--color-error); }
+.field__error { margin: 0; color: var(--color-error); font-size: 0.9rem; }
+
+.button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+  font: inherit; font-weight: 600; min-height: 44px; padding: 0.5rem 1.25rem;
+  border-radius: var(--radius); border: 1px solid transparent; cursor: pointer;
+}
+.button:disabled { opacity: 0.6; cursor: not-allowed; }
+.button--primary { background: var(--color-primary); color: var(--color-primary-text); }
+.button--secondary { background: var(--color-surface); color: var(--color-primary); border-color: var(--color-primary); }
+.button--link { background: none; color: var(--color-primary); padding: 0.25rem 0; min-height: auto; text-decoration: underline; }
+
+.alert { border-radius: var(--radius); padding: 0.75rem var(--space); margin-bottom: var(--space); }
+.alert--error { background: var(--color-error-bg); color: var(--color-error); }
+.alert--info { background: var(--color-info-bg); }
+.alert--success { background: var(--color-success-bg); }
+.alert--warning { background: var(--color-warning-bg); }
+.alert__title { font-weight: 700; margin: 0 0 0.25rem; }
+.alert__body p { margin: 0.25rem 0; }
+.alert__action { margin-top: 0.5rem; }
+
+.spinner { display: inline-flex; align-items: center; gap: 0.5rem; color: var(--color-muted); }
+.spinner__icon {
+  width: 1.25rem; height: 1.25rem; border-radius: 50%;
+  border: 3px solid var(--color-border); border-top-color: var(--color-primary);
+  animation: spin 0.8s linear infinite;
+}
+.spinner__icon--small { width: 1rem; height: 1rem; border-width: 2px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spinner__icon { animation-duration: 2s; } }
+
+.link-list { padding-left: 1.25rem; }
+.link-list li { margin: 0.5rem 0; }
+
+.muted { color: var(--color-muted); }
+h2 { font-size: 1.25rem; margin: calc(var(--space) * 1.5) 0 0.5rem; }
+h3 { font-size: 1.05rem; margin: 0; }
+
+/* Search filters */
+.filters { display: flex; flex-direction: column; gap: var(--space); margin-bottom: var(--space); }
+.filters__row { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space); }
+.subject-chosen { margin: 0; }
+.choice-list { list-style: none; padding: 0; margin: 0.5rem 0 0; border: 1px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); }
+.choice-list li + li { border-top: 1px solid var(--color-border); }
+.choice-list__item { display: block; width: 100%; text-align: left; font: inherit; padding: 0.75rem; min-height: 44px; background: none; border: 0; cursor: pointer; color: inherit; }
+.choice-list__item:hover { background: var(--color-info-bg); }
+
+/* Tutor cards */
+.card-list { list-style: none; padding: 0; margin: 0 0 var(--space); display: flex; flex-direction: column; gap: 0.75rem; }
+.card { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: var(--space); }
+.card p { margin: 0.25rem 0 0; }
+.card__meta { color: var(--color-muted); margin: 0.25rem 0 0; }
+
+/* Free times */
+.day-list { display: flex; flex-direction: column; gap: var(--space); margin-bottom: var(--space); }
+.day__title { margin-bottom: 0.25rem; }
+.slot-list { list-style: none; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.slot { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 0.4rem 0.75rem; }
+.slot__time { font-weight: 600; }
+.button-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+/* Tutor availability */
+.window-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.window { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.25rem 1rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); padding: 0.4rem 0.75rem; }
+.window .alert { flex-basis: 100%; margin: 0.25rem 0 0; }
+.confirm { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.card .button-row { margin-top: 0.5rem; }
+.card .alert { margin-top: 0.5rem; }
+
+/* Booking */
+.slot:has(.slot__button) { padding: 0; }
+.slot__button { font: inherit; color: inherit; background: none; border: 0; border-radius: var(--radius); padding: 0.4rem 0.75rem; min-height: 44px; cursor: pointer; text-align: left; }
+.slot__button:hover { background: var(--color-info-bg); }
+.booking { margin-top: calc(var(--space) * 1.5); padding: var(--space); background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); }
+.booking h2 { margin-top: 0; }
+h2:focus { outline: none; }
+h2:focus-visible { outline: 3px solid var(--color-primary); }
+textarea.field__input { resize: vertical; min-height: 5rem; }
+
+/* My sessions */
+.tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: var(--space); }
+.tabs__tab { font: inherit; min-height: 44px; padding: 0.4rem 1rem; border-radius: 999px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text); cursor: pointer; }
+.tabs__tab[aria-pressed='true'] { background: var(--color-primary); color: var(--color-primary-text); border-color: var(--color-primary); }
+.session__head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.badge { font-size: 0.85rem; font-weight: 600; padding: 0.15rem 0.6rem; border-radius: 999px; background: var(--color-info-bg); }
+.badge--accepted, .badge--completed { background: var(--color-success-bg); }
+.badge--declined, .badge--expired, .badge--cancelled, .badge--no_show { background: var(--color-warning-bg); }
+.cancel-form { margin-top: 0.75rem; }

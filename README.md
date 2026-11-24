@@ -68,6 +68,12 @@ See the [Scheduling guide](docs/scheduling.md) for recurring availability, excep
 
 See [trusted semester maintenance](docs/semester-maintenance.md) for verified calendar inputs, PowerShell dry-run/apply commands, read-only impact analysis and rollover reconfirmation.
 
+## Real-time updates
+
+The [real-time WebSocket guide](docs/realtime.md) describes the authenticated `GET /ws` gateway and versioned invalidation contract implemented for #85/#86. [Backend delivery](docs/realtime-delivery.md) publishes all six event categories through transactional capture and Redis fanout (#87–#88), including worker expiry. [Realtime operations](docs/realtime-operations.md) documents required deployment namespacing, private metrics, recovery and the opt-in 200-user workload (#89). React realtime integration remains future work. The delivery plan is tracked in [#84](https://github.com/StefanPenchev05/course-code-2026-team-06/issues/84): backend issues #85–#89 and frontend issues #90–#94.
+
+Scheduling publication (#87) must use committed events and current recipient/resource authorization; see the exact integration contract in the guide. The [Codex starting brief](docs/codex-realtime-foundation.md) scopes this foundation work. The current React frontend remains unchanged by this gateway task; WebSocket client integration is tracked separately in #90–#94.
+
 ## Background workers
 
 See the [worker guide](docs/workers.md) for expiration polling, SMTP delivery, retries, and Compose setup.

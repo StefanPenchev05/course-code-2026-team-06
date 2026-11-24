@@ -32,6 +32,8 @@ import (
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/security"
 	identityhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/interfaces/http"
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/observability"
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/realtime"
 	scheduling "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/application"
 	schedulingdomain "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/domain"
 	schedulingpg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/infrastructure/postgres"
@@ -80,6 +82,11 @@ func browserOrigin(value string) (bool, error) {
 }
 
 func Run(ctx context.Context, logger *slog.Logger) error {
+	realtimeConfig, err := realtimeSettings()
+	if err != nil {
+		return err
+	}
+	stats := observability.New()
 	origin := env("PUBLIC_ORIGIN", "http://localhost:8080")
 	secure, err := browserOrigin(origin)
 	if err != nil {
@@ -215,9 +222,25 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 	coordhttp.NewFlaggedUsers(coordination.NewFlaggedUsers(coordpg.NewFlaggedUsers(pool, coordpg.FlaggedUsersDependencies{
 		Faculty: postgres.ReadCoordinatorFaculty, Accounts: postgres.AccountStates,
 	})), logger).RegisterRoutes(mux, identity)
+	hub, err := realtime.NewHub(realtime.DefaultConfig(), stats)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := hub.Shutdown(shutdown); err != nil {
+			logger.Error("Realtime shutdown timed out")
+		}
+	}()
+	stopRealtime, err := startRealtime(ctx, pool, client, hub, tutoringService, mux, identity, logger, realtimeConfig, stats)
+	if err != nil {
+		return err
+	}
+	defer stopRealtime()
 	server := &http.Server{
 		Addr:              env("HTTP_ADDR", "127.0.0.1:8080"),
-		Handler:           http.TimeoutHandler(mux, 10*time.Second, `{"error":"request timed out"}`),
+		Handler:           apiHandler(mux, realtime.NewHandler(hub, identity, origin), 10*time.Second),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
 		WriteTimeout:      15 * time.Second,
@@ -229,10 +252,15 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 	logger.Info("Tutti API listening", "address", server.Addr)
 	select {
 	case err := <-result:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
 		return err
 	case <-ctx.Done():
 		shutdown, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return server.Shutdown(shutdown)
+		// Shutdown does not track hijacked sockets; close/join them explicitly.
+		socketErr := hub.Shutdown(shutdown)
+		return errors.Join(socketErr, server.Shutdown(shutdown))
 	}
 }

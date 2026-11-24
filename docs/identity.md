@@ -251,3 +251,16 @@ After successful `OIDCCallback.Complete`, Stage 3B should call `resolver.Resolve
 Application tests cover trusted issuer/field validation, unknown/failure handling and unchanged principal permissions. Real PostgreSQL tests cover both unique constraints under concurrent attempts, exact idempotence, mutable email/name, disabled accounts, existing student/tutor/coordinator state, account-close races and rollback after insert failure. Snapshots verify no changes to existing user/role/qualification/session/feedback/history records, while Redis checks verify no application sessions are issued. The schema runner checks migration 16 up/down/reapply, uniqueness, restrictive FK, existing-data preservation and its populated-table rollback guard on a disposable database.
 
 Stage 3A verification on 2026-11-23: `go test -race ./...`, `go vet ./...` and `go build ./...` passed from `backend`; `bash backend/tests/integration/test_identity.sh -race` and `python3 backend/tests/integration/test_schema.py` passed from the repository root. The schema runner verified all 34 tables, migration 16 up/down/reapply and its populated-table guard. The service-backed suite skipped only the unrelated opt-in worker-container and live university SMTP probes. No production migration or live IdP provisioning was performed for Stage 3A; Stage 2 cryptography and its existing callback behavior were preserved and covered by regression tests.
+
+## Realtime account access (#88)
+
+Migration 18 captures existing verification, membership/program, coordinator
+assignment, tutor role, suspension/reinstatement and closure changes. The outbox
+retains the affected account only as a private routing target; public
+`account.access_changed` has no `entityId`. Only that account is a candidate;
+coordinator reviews use separate scoped case events. Changed permissions can
+close the socket before any final event. The existing 15-second revalidation
+interval, 3-second check budget and per-event checks are unchanged. Reconnect
+must refetch `/api/v1/auth/me` and authorized visible data. See [realtime
+delivery](realtime-delivery.md). No new account/SSO/program administration API
+is introduced.

@@ -119,3 +119,13 @@ Tutor search and profile responses include aggregate ratings from the [Feedback 
 The test suites use the actual migrations, not a simplified schema. Live SMTP/SSO, unrelated frontend work and production deployment are outside this issue.
 
 Verification on 2026-11-19: `go test -race ./...`, `go vet ./...` and `go build ./...` from `backend`, plus `bash backend/tests/integration/test_identity.sh -race` and `python3 backend/tests/integration/test_schema.py` from the repository root all passed. Final Go runs used the working tree directly, without an overlay. The integration runner skipped its opt-in worker-container and live university SMTP probes; these are unrelated to revalidation acceptance. The schema runner verified all 31 tables, integrity/concurrency checks, all ten rollbacks and reapplication. No new migration, public program-change endpoint or automatic invocation is claimed.
+
+## Realtime invalidations (#88)
+
+Migration 18 captures application submissions/decisions and offering activation,
+deactivation or qualification replacement in the original transaction. The public
+`tutor_application.changed` entity is the application ID, never a grade or offering
+DTO. Recipients follow ownership and the application's stored faculty. Internal
+eligibility reconciliation is covered; the general program-change workflow remains
+#74. See [producer and recipient rules](realtime-delivery.md). React consumption
+remains #90/#93.

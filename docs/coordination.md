@@ -718,3 +718,13 @@ On Windows PowerShell with Docker Desktop using Linux containers, run from the r
 Both commands build the existing runtime and test targets and create isolated, disposable PostgreSQL/Redis test containers. The targeted issue run starts no worker. The full regression run exercises notifications using its local SMTP fixture. Neither command uses the developer's Compose database, changes its port, or removes its volumes. `-IssuesOnly` and `-NotificationsOnly` are mutually exclusive.
 
 `TestIssueReporting` includes `coordinator_inbox_and_resolution` as well as the original creation regression tests. The coordinator suite checks multiple/empty faculty inboxes, stable pagination, historical detail, required notes and strict JSON, role and cross-faculty denials, stored ownership after a reporter moves, legacy evidence, failed audit/update rollback, one winning concurrent resolution, and lock-controlled coordinator reassignment/removal/suspension/closure and cancellation. It also verifies that general issue handling leaves scheduling, discipline and notifications unchanged. The schema suite tests actual legacy-data upgrade through migrations 11 and 12, migration 12 rollback without data loss, constraints, complete rollback, and reapplication. Existing attendance tests cover concurrent completion/reporting, conflicting decisions, faculty isolation, threshold routing, and rollback after failed audit writes.
+
+## Realtime invalidations (#88)
+
+Migration 18 captures issue/attendance decisions, violations, flags, policy
+cancellation history and suspension decisions transactionally. Case identifiers
+are delivered only under their current record-specific read authority; stored
+session/audit faculty and current home-faculty administration are distinct.
+Existing booking capture, history, email and discipline rules are unchanged.
+See the [event and authorization matrix](realtime-delivery.md) for exact scopes
+and frontend refetch requirements. No React live-refresh behavior is added here.
