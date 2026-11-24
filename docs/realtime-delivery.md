@@ -200,15 +200,61 @@ expiry, completion/no-show, rule/exception/slot changes, administrative cancella
 watch bounds/expiry/privacy, cross-API delivery, resubscription and reconnect refetch.
 No mock backend or fabricated frontend refresh is used.
 
+`TestRealtimeMutationPublication` adds exact outbox-to-socket assertions for each
+rule create/update/delete, one-off create/delete, generated-slot deletion (which
+creates an exception), exception restoration, and reservation creation/release.
+Every operation checks event type, affected tutor/session, stable UUID, timestamp,
+transaction identity and exact recipient sets across two API hubs. Multiple slot
+or reservation trigger writes must coalesce to one availability event per tutor
+per transaction, including when a student is also a tutor. Test-only FIFO markers
+are sent after both real fanout receivers finish queueing, so missing, duplicate
+or unauthorized socket events fail without negative sleep windows.
+
+Rejected overlapping rule replacements, reserved-slot/rule changes and conflicting
+bookings leave no deliverable events. A separate connection cannot dispatch an
+uncommitted capture, and rollback removes it. A failed Redis publication preserves
+the committed availability row, persists retry state, and subsequently delivers
+the same event UUID and payload. The existing scheduling suite continues to test
+concurrent claims, stale-token fencing and separate-process expiration delivery;
+the migration runner verifies capture/coalescing, guarded rollback and reapply.
+
+Policy-cancellation sockets are checked for both participants and the current
+session-faculty coordinator. Suspension cancels both requested and accepted test
+sessions in one transaction: the tutor and session-faculty coordinator receive
+both booking invalidations, while the public watcher receives one coalesced tutor
+invalidation. The suspended participant is disconnected; unrelated users and the
+learner's home-faculty coordinator receive no private booking identifiers, even
+when that coordinator initiated suspension. Tests also check released reservations,
+preserved cancellation reasons/history and queued participant/account emails.
+
 ```sh
 (cd backend && go test -race ./... && go vet ./... && go build ./...)
 bash backend/tests/integration/test_identity.sh -race
 python3 backend/tests/integration/test_schema.py
 ```
 
-Frontend #90 still owns the singleton socket client, ID deduplication, watch
-registration/renewal, reconnect/refetch behavior and integration with the existing
-HTTP cache/forms. Browser journeys remain #90–#94. Reliability #89 still owns
+The remaining frontend handoff is explicit:
+
+- **#90:** Implement the shared authenticated `/ws` client using the existing auth
+  context and HTTP client. Validate the v1 envelope, deduplicate by event ID,
+  tolerate reordering, reconnect with bounded backoff, and refetch visible HTTP
+  data after every successful connection. Provide shared availability-watch
+  registration/renewal and repeat registration then refetch after reconnect.
+- **#91:** Consume `booking.changed` (`entityId` is a session UUID) in the existing
+  booking feature. Refetch affected `sessionsApi.mine` and `sessionsApi.tutorQueue`
+  results, session detail when displayed, and available actions. Event payloads
+  carry no status or meeting details; obtain them through authorized REST reads.
+- **#92:** Register authorized watches for visible tutors through
+  `POST /api/v1/realtime/availability-watches`, renew the ten-minute leases while
+  needed, and consume `availability.changed` (`entityId` is a **tutor** UUID).
+  Refresh affected `tutorsApi.availability`, visible discovery/profile results,
+  and the owner's `availabilityApi` windows/rules/skipped-date views. Scope by
+  tutor and existing view filters; the event contains no course or slot ID.
+
+These are requirements for the existing React features, not implemented browser
+updates. Browser journeys and duplicate-free UI effects still need #90–#94
+integration/E2E evidence before the full user-facing #87 criteria can be closed.
+Reliability #89 still owns
 production proxy/outage/load tests, operational metrics/retention/alerts, Redis ACL
 and buffer sizing, publisher throughput and large deployment hardening. The
 implementation already supports cross-process fanout; it does not claim durable
