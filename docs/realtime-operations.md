@@ -245,6 +245,41 @@ For the full integration suite omit `-run`; for schema/migration regression use
 CI runner automatically includes the short process/namespace tests. The heavy
 load test is opt-in; no duplicate CI job was introduced.
 
+### Redis restart fixture and CI diagnostics
+
+The host-mode CI runner and the Docker test-network mode both exercise the real
+stop/start outage. Host mode selects a free loopback port and passes that **explicit
+port** to Docker. An empty/random Docker host-port binding can select a different
+port on the next `docker start`, leaving both API clients retrying an abandoned
+address indefinitely. Container-name networking masked that fixture defect in
+the earlier local run. No production fanout or monitoring change was needed.
+
+The fixture checks that the published endpoint is unchanged, then waits up to ten
+seconds for a bounded PING at the endpoint configured in the APIs. Only afterward
+does the unchanged 15-second subscription-recovery deadline begin. Recovery
+requires **two actual Redis subscribers**, both APIs reporting subscribed, and an
+increased recovery counter in each API. A new HTTP booking/acceptance then proves
+bidirectional delivery and user/faculty isolation after reconnect. A separate test
+stops an API while Redis is still unavailable, checking bounded shutdown.
+
+On failure, diagnostics include container state/published endpoint, Redis PING,
+actual subscriber count, both API monitoring snapshots, and a sanitized summary
+of the last 16 KiB of each API log. Only fixed numeric operational/transport
+categories are emitted; arbitrary log text, credentials and payloads are omitted.
+
+To repeat the CI host-port path on a Linux host with the existing test tools:
+
+```bash
+for attempt in 1 2 3 4 5; do
+    bash backend/tests/integration/test_identity.sh -race -timeout 180s \
+        -run '^TestRealtime(IndependentProcessesRecovery|ShutdownDuringRedisRecovery)$' || exit 1
+done
+```
+
+Leave `TUTTI_TEST_DOCKER_NETWORK` unset for that host-port regression. Each runner
+invocation owns and cleans up its disposable services. The runner deliberately
+sets `-count=1`, so use repeated invocations rather than overriding `-count` there.
+
 ```powershell
 Push-Location backend
 try {

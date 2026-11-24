@@ -45,6 +45,7 @@ type realtimeProcess struct {
 	input         io.WriteCloser
 	done          chan error
 	base, monitor string
+	logPath       string
 	stopped       bool
 }
 
@@ -99,6 +100,7 @@ func startRealtimeProcess(t *testing.T, namespace string) *realtimeProcess {
 	t.Cleanup(func() { _ = log.Close() })
 	p.cmd.Stdout = log
 	p.cmd.Stderr = log
+	p.logPath = log.Name()
 	p.input, err = p.cmd.StdinPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -112,8 +114,7 @@ func startRealtimeProcess(t *testing.T, namespace string) *realtimeProcess {
 		select {
 		case err := <-p.done:
 			p.stopped = true
-			data, _ := os.ReadFile(log.Name())
-			t.Fatalf("API exited: %v\n%s", err, data)
+			t.Fatalf("API exited: %v; sanitized logs: %s", err, p.sanitizedLogs())
 		default:
 		}
 		r, err := (&http.Client{Timeout: time.Second}).Get(p.monitor + "/readyz")
@@ -149,16 +150,21 @@ func (p *realtimeProcess) stop(t *testing.T, crash bool) {
 }
 func (p *realtimeProcess) stats(t *testing.T) observability.Snapshot {
 	t.Helper()
-	r, err := (&http.Client{Timeout: 2 * time.Second}).Get(p.monitor + "/metrics")
+	s, err := p.readStats()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer r.Body.Close()
-	var s observability.Snapshot
-	if err = json.NewDecoder(r.Body).Decode(&s); err != nil {
-		t.Fatal(err)
-	}
 	return s
+}
+func (p *realtimeProcess) readStats() (observability.Snapshot, error) {
+	var s observability.Snapshot
+	r, err := (&http.Client{Timeout: 2 * time.Second}).Get(p.monitor + "/metrics")
+	if err != nil {
+		return s, err
+	}
+	defer r.Body.Close()
+	err = json.NewDecoder(r.Body).Decode(&s)
+	return s, err
 }
 func (p *realtimeProcess) call(t *testing.T, status int, method, path string, body any, cookie *http.Cookie) []byte {
 	t.Helper()
@@ -213,7 +219,10 @@ func realtimeFaultRedis(t *testing.T) func(string) {
 	if network != "" {
 		args = append(args, "--network", network, "--network-alias", name)
 	} else {
-		args = append(args, "-p", "127.0.0.1::6379")
+		// Docker assigns a NEW host port on start when HostPort is empty/zero.
+		// CI runs the APIs on the host: retain one explicit free port across the
+		// outage rather than leaving their Redis clients at an abandoned endpoint.
+		args = append(args, "-p", freeRealtimeAddress(t)+":6379")
 	}
 	args = append(args, "redis:8.2-alpine", "redis-server", "--save", "", "--appendonly", "no")
 	out, err := exec.Command("docker", args...).CombinedOutput()
@@ -235,10 +244,29 @@ func realtimeFaultRedis(t *testing.T) func(string) {
 		address = strings.TrimSpace(string(out))
 	}
 	t.Setenv("TUTTI_TEST_REDIS_URL", "redis://"+address+"/0")
-	awaitRealtime(t, 10*time.Second, "disposable Redis health", func() bool {
-		out, err := exec.Command("docker", "exec", id, "redis-cli", "ping").Output()
-		return err == nil && strings.TrimSpace(string(out)) == "PONG"
+	probe := redis.NewClient(&redis.Options{Addr: address, DialTimeout: 250 * time.Millisecond, ReadTimeout: 250 * time.Millisecond, WriteTimeout: 250 * time.Millisecond, MaxRetries: -1, ContextTimeoutEnabled: true})
+	t.Cleanup(func() { _ = probe.Close() })
+	t.Cleanup(func() {
+		if t.Failed() {
+			for _, args := range [][]string{{"inspect", "--format", "{{.State.Status}}", id}, {"port", id, "6379/tcp"}, {"exec", id, "redis-cli", "ping"}} {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				out, err := exec.CommandContext(ctx, "docker", args...).Output()
+				cancel()
+				t.Logf("Redis container %s: %q (success=%t); configured endpoint=%s", args[0], strings.TrimSpace(string(out)), err == nil, address)
+			}
+		}
 	})
+	waitReady := func() {
+		t.Helper()
+		started := time.Now()
+		awaitRealtime(t, 10*time.Second, "disposable Redis PING at configured endpoint", func() bool {
+			ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			defer cancel()
+			return probe.Ping(ctx).Err() == nil
+		})
+		t.Logf("Redis configured endpoint ready in %s", time.Since(started))
+	}
+	waitReady()
 	return func(action string) {
 		t.Helper()
 		if action != "stop" && action != "start" {
@@ -246,6 +274,17 @@ func realtimeFaultRedis(t *testing.T) func(string) {
 		}
 		if out, err := exec.Command("docker", action, id).CombinedOutput(); err != nil {
 			t.Fatalf("own Redis %s: %v %s", action, err, out)
+		}
+		if action == "start" {
+			if network == "" {
+				out, err := exec.Command("docker", "port", id, "6379/tcp").Output()
+				if err != nil || strings.TrimSpace(string(out)) != address {
+					t.Fatalf("Redis published endpoint changed: configured=%s actual=%q error=%v", address, strings.TrimSpace(string(out)), err)
+				}
+			}
+			// The caller's recovery deadline begins only after Redis is reachable
+			// at the endpoint already configured in BOTH independent API processes.
+			waitReady()
 		}
 	}
 }
@@ -323,6 +362,11 @@ func TestRealtimeIndependentProcessesRecovery(t *testing.T) {
 	f, now := productionRealtimeFixture(t)
 	const namespace = "process-test"
 	a, b := startRealtimeProcess(t, namespace), startRealtimeProcess(t, namespace)
+	defer func() {
+		if t.Failed() {
+			realtimeRecoveryDiagnostics(t, namespace, a, b)
+		}
+	}()
 	student := readProcessSocket(f.ctx, a.socket(t, f.ctx, f.cookie[bookingStudent]))
 	tutor := readProcessSocket(f.ctx, b.socket(t, f.ctx, f.cookie[bookingTutor]))
 	outsider := readProcessSocket(f.ctx, b.socket(t, f.ctx, f.cookie[bookingOtherStudent]))
@@ -442,13 +486,58 @@ func TestRealtimeIndependentProcessesRecovery(t *testing.T) {
 	if a.stats(t).Subscribed {
 		t.Fatal("subscription remained healthy during outage")
 	}
+	select {
+	case <-student.closed:
+	case <-time.After(8 * time.Second):
+		t.Fatal("Redis interruption did not close the socket")
+	}
+	recoveryA, recoveryB := a.stats(t).Counters["subscription_recoveries"], b.stats(t).Counters["subscription_recoveries"]
 	redisControl("start")
-	awaitRealtime(t, 15*time.Second, "Redis subscription recovery", func() bool { return a.stats(t).Subscribed && b.stats(t).Subscribed })
+	recoveryStarted := time.Now()
+	awaitRealtime(t, 15*time.Second, "Redis subscription recovery", func() bool {
+		x, y := a.stats(t), b.stats(t)
+		count, err := f.redis.PubSubNumSub(f.ctx, "tutti:"+namespace+":realtime:v1").Result()
+		return err == nil && count["tutti:"+namespace+":realtime:v1"] == 2 && x.Subscribed && y.Subscribed && x.Counters["subscription_recoveries"] > recoveryA && y.Counters["subscription_recoveries"] > recoveryB
+	})
+	t.Logf("Both actual subscriptions and monitoring recovered in %s after Redis readiness", time.Since(recoveryStarted))
 	a.call(t, 401, "GET", "/sessions/"+id, nil, f.cookie[bookingStudent]) // volatile session store was lost
 	f.cookie[bookingStudent] = f.a.call(t, 200, "POST", "/auth/login", map[string]string{"email": "book-student@uni.example", "password": password}, nil).Result().Cookies()[0]
 	student = readProcessSocket(f.ctx, a.socket(t, f.ctx, f.cookie[bookingStudent]))
 	if !bytes.Contains(a.call(t, 200, "GET", "/sessions/"+id, nil, f.cookie[bookingStudent]), []byte("CANCELLED")) {
 		t.Fatal("reconnect refetch lost committed cancellation")
+	}
+	// A NEW HTTP commit must cross the recovered subscriptions, not merely
+	// disappear from the outbox. Recheck excluded users/faculties after reconnect.
+	for actor, email := range map[int]string{bookingTutor: "book-tutor", bookingOtherStudent: "book-other-student", bookingHomeCoordinator: "book-home-coord"} {
+		f.cookie[actor] = f.a.call(t, 200, "POST", "/auth/login", map[string]string{"email": email + "@uni.example", "password": password}, nil).Result().Cookies()[0]
+	}
+	tutor = readProcessSocket(f.ctx, b.socket(t, f.ctx, f.cookie[bookingTutor]))
+	outsider = readProcessSocket(f.ctx, b.socket(t, f.ctx, f.cookie[bookingOtherStudent]))
+	wrongFaculty = readProcessSocket(f.ctx, a.socket(t, f.ctx, f.cookie[bookingHomeCoordinator]))
+	payload["starts_at"] = now.Add(98 * time.Hour).Format(time.RFC3339)
+	data = a.call(t, 201, "POST", "/sessions", payload, f.cookie[bookingStudent])
+	if err = json.Unmarshal(data, &created); err != nil {
+		t.Fatal(err)
+	}
+	recoveredID := created.Data.ID
+	student.event(t, app.BookingChanged, recoveredID)
+	tutor.event(t, app.BookingChanged, recoveredID)
+	b.call(t, 200, "POST", tutorRequestsPath+recoveredID+"/accept", testMeeting, f.cookie[bookingTutor])
+	student.event(t, app.BookingChanged, recoveredID)
+	tutor.event(t, app.BookingChanged, recoveredID)
+	for _, x := range []struct {
+		user   int
+		stream *processStream
+	}{{bookingOtherStudent, outsider}, {bookingHomeCoordinator, wrongFaculty}} {
+		f.exec(t, "SELECT enqueue_realtime_event('account.access_changed',$1)", fixture(x.user))
+		select {
+		case e := <-x.stream.events:
+			if e.Type != app.AccountAccessChanged || e.EntityID != "" {
+				t.Fatal("private event leaked after recovery")
+			}
+		case <-time.After(8 * time.Second):
+			t.Fatal("post-recovery isolation marker missing")
+		}
 	}
 	awaitRealtime(t, 15*time.Second, "outbox drains after recovery", func() bool {
 		var n int
