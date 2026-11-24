@@ -32,6 +32,7 @@ import (
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/security"
 	identityhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/interfaces/http"
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/observability"
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/realtime"
 	scheduling "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/application"
 	schedulingdomain "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/domain"
@@ -81,6 +82,11 @@ func browserOrigin(value string) (bool, error) {
 }
 
 func Run(ctx context.Context, logger *slog.Logger) error {
+	realtimeConfig, err := realtimeSettings()
+	if err != nil {
+		return err
+	}
+	stats := observability.New()
 	origin := env("PUBLIC_ORIGIN", "http://localhost:8080")
 	secure, err := browserOrigin(origin)
 	if err != nil {
@@ -216,7 +222,7 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 	coordhttp.NewFlaggedUsers(coordination.NewFlaggedUsers(coordpg.NewFlaggedUsers(pool, coordpg.FlaggedUsersDependencies{
 		Faculty: postgres.ReadCoordinatorFaculty, Accounts: postgres.AccountStates,
 	})), logger).RegisterRoutes(mux, identity)
-	hub, err := realtime.NewHub(realtime.DefaultConfig())
+	hub, err := realtime.NewHub(realtime.DefaultConfig(), stats)
 	if err != nil {
 		return err
 	}
@@ -227,7 +233,7 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 			logger.Error("Realtime shutdown timed out")
 		}
 	}()
-	stopRealtime, err := startRealtime(ctx, pool, client, hub, tutoringService, mux, identity, logger)
+	stopRealtime, err := startRealtime(ctx, pool, client, hub, tutoringService, mux, identity, logger, realtimeConfig, stats)
 	if err != nil {
 		return err
 	}

@@ -62,13 +62,17 @@ const (
 	bookingOtherOffer      = 442
 )
 
-func newBookingFixture(t *testing.T) *bookingFixture {
+func newBookingFixture(t *testing.T, timeout ...time.Duration) *bookingFixture {
 	t.Helper()
 	dsn, redisURL := os.Getenv("TUTTI_TEST_DATABASE_URL"), os.Getenv("TUTTI_TEST_REDIS_URL")
 	if dsn == "" || redisURL == "" {
 		t.Skip("run tests/integration/test_identity.sh for PostgreSQL and Redis")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	budget := time.Minute
+	if len(timeout) != 0 {
+		budget = timeout[0]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
 	db, err := pgxpool.New(ctx, dsn)
 	if err != nil {

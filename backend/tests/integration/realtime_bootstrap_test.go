@@ -33,6 +33,7 @@ func TestRealtimeProductionBootstrap(t *testing.T) {
 	addr := listener.Addr().String()
 	listener.Close()
 	for key, value := range map[string]string{
+		"REALTIME_NAMESPACE": "bootstrap-test", "REALTIME_MONITOR_ADDR": "",
 		"DATABASE_URL": os.Getenv("TUTTI_TEST_DATABASE_URL"), "REDIS_URL": os.Getenv("TUTTI_TEST_REDIS_URL"),
 		"HTTP_ADDR": addr, "PUBLIC_ORIGIN": origin, "UNIVERSITY_EMAIL_DOMAINS": "uni.example", "OIDC_ENABLED": "false",
 		"ARGON2_MEMORY_KIB": "19456", "ARGON2_ITERATIONS": "2", "ARGON2_THREADS": "1", "ARGON2_CONCURRENCY": "2",

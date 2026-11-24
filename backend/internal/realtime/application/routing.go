@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/domain"
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/observability"
 	scheduling "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/scheduling/application"
 )
 
@@ -119,16 +120,26 @@ type Receiver struct {
 	seen      map[string]bool
 	ring      []string
 	next      int
+	metrics   *observability.Metrics
 }
 
 func NewReceiver(store Outbox, routing *Routing, publisher Publisher) *Receiver {
 	return &Receiver{store: store, routing: routing, publisher: publisher, seen: map[string]bool{}, ring: make([]string, 4096)}
 }
-func (r *Receiver) Receive(ctx context.Context, id string) error {
+func (r *Receiver) WithMetrics(m *observability.Metrics) *Receiver { r.metrics = m; return r }
+func (r *Receiver) Receive(ctx context.Context, id string) (result error) {
+	started := time.Now()
+	defer func() {
+		r.metrics.Observe("process", time.Since(started))
+		if result != nil {
+			r.metrics.Inc("processing_failed")
+		}
+	}()
 	if !ValidID(id) {
 		return ErrInvalidEvent
 	}
 	if r.seen[id] {
+		r.metrics.Inc("duplicates_suppressed")
 		return nil
 	}
 	e, err := r.store.Get(ctx, id)
@@ -161,5 +172,6 @@ func (r *Receiver) Receive(ctx context.Context, id string) error {
 	r.ring[r.next] = id
 	r.seen[id] = true
 	r.next = (r.next + 1) % len(r.ring)
+	r.metrics.Inc("events_processed")
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/domain"
 	"github.com/coder/websocket"
@@ -49,23 +50,35 @@ func reject(w http.ResponseWriter, status int) {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	started := time.Now()
+	accepted := false
+	defer func() {
+		if !accepted {
+			h.hub.metrics.Observe("handshake", time.Since(started))
+		}
+	}()
+	refuse := func(status int, category string) {
+		h.hub.metrics.Inc("connections_rejected")
+		h.hub.metrics.Inc(category)
+		reject(w, status)
+	}
 	w.Header().Set("Cache-Control", "no-store")
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", "GET")
-		reject(w, 405)
+		refuse(405, "handshake_request")
 		return
 	}
 	if origins := r.Header.Values("Origin"); len(origins) != 1 || origins[0] != h.origin {
-		reject(w, 403)
+		refuse(403, "handshake_origin")
 		return
 	}
 	if r.URL.RawQuery != "" || r.URL.ForceQuery || len(r.Header.Values("Sec-WebSocket-Protocol")) != 0 {
-		reject(w, 400)
+		refuse(400, "handshake_request")
 		return
 	}
 	check, err := h.sessions.SessionCheck(r)
 	if err != nil {
-		reject(w, 401)
+		refuse(401, "handshake_session")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), h.hub.config.AuthTimeout)
@@ -77,20 +90,20 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil || !p.Active() || (!p.Student && !p.Coordinator()) {
 		switch {
 		case errors.Is(err, domain.ErrUnauthenticated):
-			reject(w, 401)
+			refuse(401, "handshake_session")
 		case err == nil || errors.Is(err, domain.ErrForbidden):
-			reject(w, 403)
+			refuse(403, "handshake_session")
 		default:
-			reject(w, 503)
+			refuse(503, "handshake_dependency")
 		}
 		return
 	}
 	c, err := h.hub.reserve(p, check)
 	if err != nil {
 		if errors.Is(err, ErrLimit) {
-			reject(w, 429)
+			refuse(429, "connections_limit_rejected")
 		} else {
-			reject(w, 503)
+			refuse(503, "handshake_dependency")
 		}
 		return
 	}
@@ -100,7 +113,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		OriginPatterns: []string{h.origin}, CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {
+		h.hub.metrics.Inc("connections_rejected")
+		h.hub.metrics.Inc("handshake_upgrade")
 		return
 	}
+	accepted = true
+	h.hub.metrics.Observe("handshake", time.Since(started))
+	h.hub.metrics.Inc("connections_accepted")
+	h.hub.metrics.Connection(1)
+	defer func() { h.hub.metrics.Connection(-1); h.hub.metrics.Inc("connections_disconnected") }()
 	h.hub.serve(c, socket, func() { _ = upgrade.connection.Close() })
 }

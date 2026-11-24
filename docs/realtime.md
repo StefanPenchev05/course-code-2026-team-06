@@ -59,7 +59,7 @@ All recipients must be resolved **server-side** from authoritative records/permi
 3. API dispatchers claim committed rows and publish their stable event IDs through Redis pub/sub. Each API subscriber reloads the event, resolves current recipients and queues it through its local hub with current resource authorization. The separate expiration worker's existing PostgreSQL writes use the same capture triggers.
 4. The frontend must receive an invalidation and refetch the authoritative HTTP endpoint, preserving forms, filters and focus. This React integration remains unimplemented (#90–#94).
 
-**Failure behavior:** A failed realtime outbox insert rolls back its business transaction; a rolled-back mutation leaves no deliverable event. After commit, an unavailable Redis subscriber or browser cannot undo the business change or its email notification. Dispatch failures retry with the same event ID. PostgreSQL capture is durable, while Redis pub/sub and browser delivery are best-effort: `dispatched_at` records accepted transient fanout, not receipt by every API or browser. There is no per-browser acknowledgement or offline replay. Duplicates are possible and global ordering is not promised. The realtime outbox is separate from the durable email queue. Cross-instance Redis fanout is implemented under #87; production reliability hardening remains #89. See [delivery](realtime-delivery.md) for leases, retries and recovery.
+**Failure behavior:** A failed realtime outbox insert rolls back its business transaction; a rolled-back mutation leaves no deliverable event. After commit, an unavailable Redis subscriber or browser cannot undo the business change or its email notification. Dispatch failures retry with the same event ID. PostgreSQL capture is durable, while Redis pub/sub and browser delivery are best-effort: `dispatched_at` records accepted transient fanout, not receipt by every API or browser. There is no per-browser acknowledgement or offline replay. Duplicates are possible and global ordering is not promised. The realtime outbox is separate from the durable email queue. Cross-instance Redis fanout is implemented under #87; deployment monitoring and recovery verification are documented under [#89 operations](realtime-operations.md). See [delivery](realtime-delivery.md) for leases, retries and recovery.
 
 **Reconnect contract:** Best-effort live delivery, **not guaranteed offline replay**. The client reconnects with bounded exponential backoff plus jitter, then refetches visible queries on every successful connection and on auth/faculty transition. A missed event must never leave an indefinitely stale view. Repeated/unknown messages are safe. Logout or an unauthorized handshake stops reconnect attempts until the user authenticates again. Avoid uncontrolled polling and one socket per mounted React component.
 
@@ -104,7 +104,7 @@ The current branch contains the React HTTP client, but no application WebSocket 
 - [x] Contract fixtures/tests cover all six types, truncated/trailing JSON, incorrect scalar types, invalid/missing IDs, duplicate fields and event delivery, forbidden account identifiers, and unknown versions/types (#85). Unauthorized subscription messages are covered by gateway tests (#86).
 - [x] Handshake rejects absent session, expired/revoked/suspended session, invalid Origin and untrusted scope (#86).
 - [x] Normal REST requests retain timeouts while a persistent WebSocket survives the request timeout (#86).
-- [x] Scoped gateway tests isolate users/coordinators/faculties and cover slow clients, heartbeat and shutdown (#86). Domain-specific policies are implemented under #87/#88; production load remains #89.
+- [x] Scoped gateway tests isolate users/coordinators/faculties and cover slow clients, heartbeat and shutdown (#86). Domain-specific policies are implemented under #87/#88; the measured 200-user workload is documented under [#89 operations](realtime-operations.md).
 - [x] Backend commit/rollback, affected-socket delivery and reconnect/refetch are covered for Scheduling (#87). Other module publishers are covered under #88; React tab behavior remains #90–#94.
 - [x] Worker-originated expiration, suspension/policy cancellation capture and attendance corrections generate scheduling events (#87). Additional coordination/account/activity publishers are implemented by migration 18 (#88).
 - [ ] Browser e2e uses independent student/tutor/coordinator contexts; no reload is needed; reconnect resync works (#90–#94).
@@ -227,15 +227,17 @@ Authorization is a point-in-time check; an account/resource change can race an
 already authorized network write. This transport cannot revoke bytes already
 sent. Event payload minimization, HTTP authorization on every refetch and periodic
 revalidation remain necessary. Auth/policy implementations must honor context
-cancellation and be safe for concurrent calls. Deployment rate limiting, metrics,
-high-load sizing and distributed revocation/fanout hardening remain #89.
+cancellation and be safe for concurrent calls. Issue #89 adds private metrics and measured cross-process recovery/load coverage.
+Deployment rate limiting and sizing beyond that workload still require operational
+validation; the session revalidation interval is unchanged.
 
 A reverse proxy must forward `/ws` with HTTP/1.1 Upgrade and Connection headers,
 preserve the real browser Origin, support long-lived connections, and terminate
 TLS for `wss://` where applicable. Its idle timeout must exceed the heartbeat
 interval. Do not add wildcard origins, trust proxy-supplied user IDs, or move
 session credentials to a URL. Reconnect/refetch remains mandatory behind proxies
-and across API restarts. No frontend/proxy configuration is added in this task.
+and across API restarts. An example proxy fragment is documented in [operations](realtime-operations.md);
+no frontend or deployed proxy configuration is changed.
 
 ## Scheduling publication (#87)
 
@@ -254,6 +256,16 @@ claim/retry semantics, migration ordering, rollback guard, tests and exact hando
 for frontend #90 and reliability #89. Migration 18 extends the same infrastructure
 for #88, preserving the v1 envelope and gateway. See the delivery guide for
 resource-specific policies and the private target of the entity-less account event.
+
+## Reliability and operations (#89)
+
+[Operations](realtime-operations.md) documents required `REALTIME_NAMESPACE`, optional
+loopback metrics/readiness, coordinated upgrades from the legacy channel, proxy
+configuration, recovery limits and retention approval. Independent OS-process
+tests exercise real PostgreSQL/Redis and HTTP-to-socket delivery; the opt-in
+200-user workload reports normal and failure phases separately in
+[measured results](realtime-load-results.md). Existing gateway limits and the
+version-1 wire format are preserved. Frontend contract approval remains pending.
 
 ## Verification and remaining review
 

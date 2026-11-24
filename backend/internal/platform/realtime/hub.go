@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/domain"
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/observability"
 	events "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/realtime/application"
 	"github.com/coder/websocket"
 )
@@ -53,20 +54,22 @@ type connection struct {
 	closeCode atomic.Int32
 }
 
-func (c *connection) stop(code websocket.StatusCode) {
-	c.closeCode.CompareAndSwap(0, int32(code))
+func (c *connection) stop(code websocket.StatusCode) bool {
+	first := c.closeCode.CompareAndSwap(0, int32(code))
 	c.cancel()
+	return first
 }
 
 type Hub struct {
-	config Config
-	mu     sync.Mutex
-	closed bool
-	users  map[string]map[*connection]struct{}
-	total  int
-	wg     sync.WaitGroup
-	stop   sync.Once
-	done   chan struct{}
+	config  Config
+	mu      sync.Mutex
+	closed  bool
+	users   map[string]map[*connection]struct{}
+	total   int
+	wg      sync.WaitGroup
+	stop    sync.Once
+	done    chan struct{}
+	metrics *observability.Metrics
 }
 
 var _ events.Publisher = (*Hub)(nil)
@@ -74,6 +77,7 @@ var _ events.Publisher = (*Hub)(nil)
 // Resync drops current connections after a transient fanout gap without stopping
 // the hub. Successful reconnects must refetch HTTP data and renew view watches.
 func (h *Hub) Resync() {
+	h.metrics.Inc("resynchronizations")
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, connections := range h.users {
@@ -83,11 +87,15 @@ func (h *Hub) Resync() {
 	}
 }
 
-func NewHub(config Config) (*Hub, error) {
+func NewHub(config Config, metrics ...*observability.Metrics) (*Hub, error) {
 	if !config.valid() {
 		return nil, errors.New("invalid realtime limits or timeouts")
 	}
-	return &Hub{config: config, users: make(map[string]map[*connection]struct{}), done: make(chan struct{})}, nil
+	h := &Hub{config: config, users: make(map[string]map[*connection]struct{}), done: make(chan struct{})}
+	if len(metrics) > 0 {
+		h.metrics = metrics[0]
+	}
+	return h, nil
 }
 
 // reserve counts pending upgrades too; no unbounded set of authenticated handshakes.
@@ -162,7 +170,10 @@ func (h *Hub) Publish(ctx context.Context, event events.Event, users []string, a
 			select {
 			case c.queue <- delivery{event, data, authorize}:
 			default:
-				c.stop(websocket.StatusTryAgainLater) // Reconnect/refetch; never block a business write.
+				h.metrics.Inc("queue_drops")
+				if c.stop(websocket.StatusTryAgainLater) {
+					h.metrics.Inc("slow_clients")
+				}
 			}
 		}
 	}
@@ -187,6 +198,7 @@ func (h *Hub) Shutdown(ctx context.Context) error {
 	case <-h.done:
 		return nil
 	case <-ctx.Done():
+		h.metrics.Inc("shutdown_failures")
 		return ctx.Err()
 	}
 }
@@ -207,9 +219,11 @@ func (h *Hub) authenticate(c *connection) (domain.Principal, error) {
 		err = ctx.Err()
 	}
 	if err != nil {
+		h.metrics.Inc("authentication_failures")
 		return domain.Principal{}, err
 	}
 	if !p.Active() || (!p.Student && !p.Coordinator()) || !sameAccess(c.principal, p) {
+		h.metrics.Inc("authentication_failures")
 		return domain.Principal{}, domain.ErrForbidden
 	}
 	return p, nil
@@ -279,6 +293,7 @@ func (h *Hub) serve(c *connection, socket *websocket.Conn, forceClose func()) {
 			err := socket.Ping(ctx)
 			cancel()
 			if err != nil {
+				h.metrics.Inc("heartbeat_failures")
 				return
 			}
 		case message := <-c.queue:
@@ -294,15 +309,21 @@ func (h *Hub) serve(c *connection, socket *websocket.Conn, forceClose func()) {
 			}
 			cancel()
 			if err != nil {
+				h.metrics.Inc("authorization_failures")
 				return
 			} // Fail closed on unavailable resource policy.
 			if !allowed {
+				h.metrics.Inc("authorization_denied")
 				continue
 			}
 			ctx, cancel = context.WithTimeout(c.ctx, h.config.WriteTimeout)
 			err = socket.Write(ctx, websocket.MessageText, message.data)
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				h.metrics.Inc("slow_clients")
+			}
 			cancel()
 			if err != nil {
+				h.metrics.Inc("write_failures")
 				return
 			}
 		}

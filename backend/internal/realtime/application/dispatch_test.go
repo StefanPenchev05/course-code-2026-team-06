@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/observability"
 )
 
 type fakeOutbox struct {
@@ -53,7 +55,8 @@ func TestDispatcherFailureRetryAndStableIdentity(t *testing.T) {
 	e, _ := NewEvent(BookingChanged, "00000000-0000-0000-0000-000000000001", time.Now())
 	s := &fakeOutbox{claim: Claim{Event: e, Token: "lease", Attempt: 3}}
 	bus := &fakeBus{err: errors.New("Redis unavailable")}
-	d := NewDispatcher(s, bus)
+	metrics := observability.New()
+	d := NewDispatcher(s, bus).WithMetrics(metrics)
 	if n, err := d.RunBatch(context.Background()); err == nil || n != 0 {
 		t.Fatal("failed transport acknowledged")
 	}
@@ -78,5 +81,9 @@ func TestDispatcherFailureRetryAndStableIdentity(t *testing.T) {
 		if d < time.Second || d > 5*time.Minute {
 			t.Fatal("unbounded retry")
 		}
+	}
+	counts := metrics.Snapshot().Counters
+	if counts["dispatch_claimed"] != 3 || counts["dispatch_failed"] != 1 || counts["dispatch_retried"] != 1 || counts["dispatch_published"] != 2 || counts["dispatch_ack_failed"] != 1 {
+		t.Fatal("incorrect failure/acknowledgment metrics", counts)
 	}
 }

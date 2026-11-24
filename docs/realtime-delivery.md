@@ -153,7 +153,7 @@ serving. Multiple dispatchers share claims; all subscribers independently receiv
 the chosen dispatcher's publications. Each subscriber reloads the corresponding
 committed event from PostgreSQL, validates it, resolves current candidates, and
 queues through the existing `application.Publisher` interface. The Redis channel
-`tutti:realtime:v1` carries only the 36-character event UUID. Redis is never the
+`tutti:<REALTIME_NAMESPACE>:realtime:v1` carries only the 36-character event UUID. Redis is never the
 durable event store. A bounded 4096-ID cache per subscriber suppresses repeat local
 queueing; clients must also deduplicate IDs and tolerate reordering.
 
@@ -214,7 +214,7 @@ unavailable registration/visibility infrastructure.
 Watches are server-authorized, ten-minute **Redis leases** shared across API
 instances, with at most 32 tutors per user and 16384 live user/tutor pairs overall.
 Atomic Lua scripts use Redis's clock, trim expired sorted-set entries and bound
-renewals. Keys use the `tutti:{realtime}:watches:` namespace; the global cap and
+renewals. Keys use the `tutti:{realtime:<REALTIME_NAMESPACE>}:watches:` namespace; the global cap and
 reverse indexes share one Redis hash slot. A watch made through API A applies to
 that user's sockets on API B. Leases are ephemeral view interest, not durable
 business data. No browser sends subscription JSON on `/ws`; such messages still
@@ -232,9 +232,10 @@ so automatic live refresh is **not yet a browser-visible feature**.
 ## Deployment, rollback and operations
 
 Apply migrations through **18** before the updated API. The API fails safely at startup when
-the outbox schema or initial subscription is unavailable. No new environment
-variables or dependencies are needed: dispatch and watch traffic use the existing
-`DATABASE_URL`, `REDIS_URL` and `PUBLIC_ORIGIN`. REST timeouts and the `/ws` bypass
+the outbox schema or initial subscription is unavailable. #89 requires validated
+`REALTIME_NAMESPACE` on every API and optionally enables a loopback monitor with
+`REALTIME_MONITOR_ADDR`; see [operations and coordinated rollout](realtime-operations.md).
+The existing `DATABASE_URL`, `REDIS_URL` and `PUBLIC_ORIGIN` remain required. REST timeouts and the `/ws` bypass
 remain unchanged. Worker SMTP setup remains independent of realtime delivery.
 
 Use a coordinated API rollout: stop migration-17-only API instances before
@@ -246,13 +247,14 @@ Likewise downgrade the API only after stopping writers, draining and rolling bac
 Runtime database writers must be permitted to INSERT the outbox and read the
 capture functions' referenced domain tables. API dispatchers also need
 SELECT/UPDATE on the outbox. Do not expose PostgreSQL or the Redis pub/sub/watch
-namespace to browser clients. Redis pub/sub is global across Redis database numbers: use a Redis instance dedicated to this Tutti deployment until #89 adds explicit deployment channel namespacing. Separate database indexes alone do not isolate pub/sub channels. Production Redis ACLs must cover the required
+namespace to browser clients. Redis pub/sub is global across Redis database numbers: #89 scopes channels and watches by deployment namespace. Separate database indexes alone do not isolate pub/sub channels, and Identity session storage still requires deployment isolation. Production Redis ACLs must cover the required
 pub/sub and sorted-set/Lua operations, alongside existing session commands.
 
 No automatic retention deletion runs in this issue. Monitor pending count, oldest
 pending age, attempts and expired leases; the partial pending index supports claim
-selection. #89 must establish retention, metrics, operational alerts, outage/load
-limits and throughput sizing. Event IDs are not a business audit substitute.
+selection. [Issue #89 operations](realtime-operations.md) documents metrics,
+read-only diagnostics, measured load/recovery and proposed alerts/retention. No
+retention deletion is enabled without policy approval. Event IDs are not a business audit substitute.
 The email notification queue and its SMTP at-least-once contract are untouched.
 
 Migration 18 down refuses pending domain events, removes dispatched domain
@@ -330,10 +332,11 @@ The remaining frontend handoff is explicit:
 These are requirements for the existing React features, not implemented browser
 updates. Browser journeys and duplicate-free UI effects still need #90–#94
 integration/E2E evidence before the full user-facing #87 criteria can be closed.
-Reliability #89 still owns
-production proxy/outage/load tests, operational metrics/retention/alerts, Redis ACL
-and buffer sizing, publisher throughput and large deployment hardening. The
-implementation already supports cross-process fanout; it does not claim durable
+[Issue #89](realtime-operations.md) adds independent-process outage tests, an
+opt-in 200-user workload, metrics and deployment/proxy guidance. Actual production
+proxy/ACL validation, alert thresholds and retention-policy approval remain
+deployment work. Buffer/throughput sizing beyond the measured workload still
+needs deployment evidence. The implementation does not claim durable
 browser delivery, global ordering or persistent replay.
 
 Changed implementation: migration 17; `internal/realtime/application` dispatch and

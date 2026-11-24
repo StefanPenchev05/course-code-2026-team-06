@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/observability"
 	app "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/realtime/application"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -16,6 +17,17 @@ func New(db *pgxpool.Pool) *Outbox { return &Outbox{db} }
 func (s *Outbox) Check(ctx context.Context) error {
 	_, err := s.db.Exec(ctx, `SELECT id,event_type,entity_id,resource_kind,producer_xid,claim_token,lease_until,dispatched_at FROM realtime_events LIMIT 0`)
 	return err
+}
+
+// Only the partial pending index is scanned; dispatched retention is measured
+// by relation size rather than a full historical row count on every sample.
+func (s *Outbox) Health(ctx context.Context) (observability.Outbox, error) {
+	var h observability.Outbox
+	err := s.db.QueryRow(ctx, `SELECT count(resource_kind),coalesce(greatest(extract(epoch FROM statement_timestamp()-min(occurred_at)),0),0)::float8,
+		coalesce(sum(greatest(attempt_count-1,0)),0)::bigint,count(*) FILTER(WHERE lease_until<=statement_timestamp()),
+		count(*) FILTER(WHERE last_error='fanout_failed'),pg_total_relation_size('realtime_events')
+		FROM realtime_events WHERE dispatched_at IS NULL`).Scan(&h.Pending, &h.OldestSeconds, &h.Retries, &h.ExpiredLeases, &h.FanoutFailed, &h.Bytes)
+	return h, err
 }
 
 func (s *Outbox) Claim(ctx context.Context, lease time.Duration) (app.Claim, bool, error) {

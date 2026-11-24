@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/domain"
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/platform/observability"
 	events "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/realtime/application"
 	"github.com/coder/websocket"
 )
@@ -308,7 +309,8 @@ func TestLimitsBackpressureAndConcurrentCleanup(t *testing.T) {
 	cfg.MaxConnections = 2
 	cfg.MaxPerUser = 1
 	cfg.QueueSize = 1
-	h, err := NewHub(cfg)
+	metrics := observability.New()
+	h, err := NewHub(cfg, metrics)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,6 +335,9 @@ func TestLimitsBackpressureAndConcurrentCleanup(t *testing.T) {
 	publish(t, h, e, []string{p.ID}, allow)
 	if c.ctx.Err() == nil {
 		t.Fatal("slow consumer not disconnected")
+	}
+	if counts := metrics.Snapshot().Counters; counts["queue_drops"] != 1 || counts["slow_clients"] != 1 {
+		t.Fatal("backpressure metrics", counts)
 	}
 	h.remove(c)
 	h.remove(other)

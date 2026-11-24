@@ -10,9 +10,12 @@ import (
 
 const watchPrefix = "tutti:{realtime}:watches:"
 
-type Watches struct{ client *redis.Client }
+type Watches struct {
+	client *redis.Client
+	prefix string
+}
 
-func NewWatches(client *redis.Client) *Watches { return &Watches{client} }
+func NewWatches(client *redis.Client) *Watches { return &Watches{client: client, prefix: watchPrefix} }
 
 var registerWatch = redis.NewScript(`
 local t=redis.call('TIME'); local now=t[1]*1000+math.floor(t[2]/1000); local until_at=now+600000
@@ -30,7 +33,7 @@ func (w *Watches) Register(ctx context.Context, user, tutor string) (time.Time, 
 	if !app.ValidID(user) || !app.ValidID(tutor) {
 		return time.Time{}, app.ErrWatch
 	}
-	end, err := registerWatch.Run(ctx, w.client, []string{watchPrefix + "user:" + user, watchPrefix + "tutor:" + tutor, watchPrefix + "all"}, user, tutor).Int64()
+	end, err := registerWatch.Run(ctx, w.client, []string{w.prefix + "user:" + user, w.prefix + "tutor:" + tutor, w.prefix + "all"}, user, tutor).Int64()
 	if err != nil {
 		return time.Time{}, err
 	}
@@ -47,7 +50,7 @@ func (w *Watches) Users(ctx context.Context, tutor string) ([]string, error) {
 	if !app.ValidID(tutor) {
 		return nil, app.ErrWatch
 	}
-	return watchUsers.Run(ctx, w.client, []string{watchPrefix + "tutor:" + tutor}).StringSlice()
+	return watchUsers.Run(ctx, w.client, []string{w.prefix + "tutor:" + tutor}).StringSlice()
 }
 
 var hasWatch = redis.NewScript(`local t=redis.call('TIME');local now=t[1]*1000+math.floor(t[2]/1000)
@@ -57,6 +60,6 @@ func (w *Watches) Contains(ctx context.Context, user, tutor string) (bool, error
 	if !app.ValidID(user) || !app.ValidID(tutor) {
 		return false, app.ErrWatch
 	}
-	n, err := hasWatch.Run(ctx, w.client, []string{watchPrefix + "user:" + user}, tutor).Int()
+	n, err := hasWatch.Run(ctx, w.client, []string{w.prefix + "user:" + user}, tutor).Int()
 	return n == 1, err
 }
