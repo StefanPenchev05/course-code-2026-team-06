@@ -15,6 +15,7 @@ import { PublicOnly, RequireAuth, RequireRole } from './guards';
 import { CoordinatorTutorApplicationPage } from '../pages/CoordinatorTutorApplicationPage';
 import { CoordinatorTutorApplicationsPage } from '../pages/CoordinatorTutorApplicationsPage';
 import { TutorApplicationsPage } from '../pages/TutorApplicationsPage';
+import { TutorActivityPage } from '../pages/TutorActivityPage';
 
 /**
  * All screens of the app. Replace a ComingSoonPage with the real page when
@@ -51,6 +52,7 @@ export const routes: RouteObject[] = [
             children: [
               { path: 'tutor/availability', element: <TutorAvailabilityPage /> },
               { path: 'tutor', element: <TeachingPage /> },
+              { path: 'tutor/activity', element: <TutorActivityPage /> },
             ],
           },
           {

@@ -149,3 +149,22 @@ textarea.field__input { resize: vertical; min-height: 5rem; }
 .details dt { font-weight: 600; margin-top: 0.5rem; }
 .details dd { margin: 0; }
 .preserve-lines { white-space: pre-wrap; overflow-wrap: anywhere; }
+
+
+/* Feedback and tutor activity (#34) */
+.feedback { margin-top: 0.75rem; padding-top: 0.75rem; border-top: 1px solid var(--color-border); }
+.feedback > p { margin: 0 0 0.5rem; }
+.feedback__comment { margin: 0.25rem 0 0; }
+.stars { color: #8a5a00; letter-spacing: 0.05em; }
+.rating-value { white-space: nowrap; }
+.rating { border: 0; padding: 0; margin: 0; min-width: 0; }
+.rating legend { padding: 0; margin-bottom: 0.25rem; }
+.rating__options { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.rating__option { display: inline-flex; align-items: center; gap: 0.4rem; min-height: 44px; padding: 0.3rem 0.8rem; border: 1px solid var(--color-border); border-radius: 999px; background: var(--color-surface); cursor: pointer; }
+.rating__option:has(input:checked) { border-color: var(--color-primary); background: var(--color-info-bg); font-weight: 600; }
+.field--invalid .rating__option { border-color: var(--color-error); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.75rem; margin: 0 0 0.5rem; }
+.stats__item { padding: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); }
+.stats__item dt { color: var(--color-muted); font-size: 0.9rem; }
+.stats__item dd { margin: 0.25rem 0 0; font-size: 1.4rem; font-weight: 700; }
+.stats__item dd.stats__empty { font-size: 1rem; }

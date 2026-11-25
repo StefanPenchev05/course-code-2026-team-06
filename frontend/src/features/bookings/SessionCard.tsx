@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
 import { Alert, Button, TextArea } from '../../shared/ui';
 import { browserTimeZone, MODE_LABEL } from '../../shared/utils/datetime';
+import { SessionFeedback } from '../feedback';
 import { sessionsApi } from './api';
 import { bookingError, byteLength, isLateCancellation, isWebLink, PURPOSE_LABEL, REASON_MAX_BYTES, statusLabel } from './rules';
 import type { Session, SessionStatus } from './types';
@@ -58,6 +59,10 @@ export function SessionCard({ session, onChanged, timeZone = browserTimeZone() }
           {session.is_late_cancellation ? ' less than 24 hours before the start' : ''}
           {session.cancellation_reason ? `. Reason: ${session.cancellation_reason}` : '.'}
         </p>
+      )}
+      
+            {session.status === 'COMPLETED' && session.viewer_role && (
+        <SessionFeedback sessionId={session.id} subjectName={session.subject_name} viewerRole={session.viewer_role} />
       )}
 
       {CANCELLABLE.includes(session.status) &&

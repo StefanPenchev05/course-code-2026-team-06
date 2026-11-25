@@ -46,6 +46,7 @@ export function AppLayout() {
                     Teaching
                   </NavLink>
                   <NavLink to="/tutor/availability">My availability</NavLink>
+                  <NavLink to="/tutor/activity">My activity</NavLink>
                 </>
               )}
               {hasRole(user, 'coordinator') && <NavLink to="/coordinator">Coordinator</NavLink>}
