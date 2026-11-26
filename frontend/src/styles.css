@@ -168,3 +168,15 @@ textarea.field__input { resize: vertical; min-height: 5rem; }
 .stats__item dt { color: var(--color-muted); font-size: 0.9rem; }
 .stats__item dd { margin: 0.25rem 0 0; font-size: 1.4rem; font-weight: 700; }
 .stats__item dd.stats__empty { font-size: 1rem; }
+
+
+/* Coordinator monitoring and policy cancellation (#35) */
+.filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: var(--space); align-items: start; margin-bottom: var(--space); }
+.badge--active { background: var(--color-success-bg); }
+.badge--inactive { background: var(--color-warning-bg); }
+.schedule-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.schedule-entry { padding: 0.5rem 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius); }
+.schedule-entry--free { background: transparent; border-style: dashed; color: var(--color-muted); }
+.schedule-entry .card__meta { margin: 0.25rem 0 0; }
+.schedule-nav { margin-bottom: var(--space); }
+.tutor-card__name { margin: 0; font-size: 1.1rem; }

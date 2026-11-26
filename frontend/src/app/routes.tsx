@@ -1,5 +1,4 @@
 import type { RouteObject } from 'react-router';
-import { ComingSoonPage } from '../pages/ComingSoonPage';
 import { HomePage } from '../pages/HomePage';
 import { LoginPage } from '../pages/LoginPage';
 import { MySessionsPage } from '../pages/MySessionsPage';
@@ -16,6 +15,9 @@ import { CoordinatorTutorApplicationPage } from '../pages/CoordinatorTutorApplic
 import { CoordinatorTutorApplicationsPage } from '../pages/CoordinatorTutorApplicationsPage';
 import { TutorApplicationsPage } from '../pages/TutorApplicationsPage';
 import { TutorActivityPage } from '../pages/TutorActivityPage';
+import { CoordinatorHomePage } from '../pages/CoordinatorHomePage';
+import { CoordinatorTutorPage } from '../pages/CoordinatorTutorPage';
+import { CoordinatorTutorsPage } from '../pages/CoordinatorTutorsPage';
 
 /**
  * All screens of the app. Replace a ComingSoonPage with the real page when
@@ -60,7 +62,9 @@ export const routes: RouteObject[] = [
             children: [
               { path: 'coordinator/tutor-applications', element: <CoordinatorTutorApplicationsPage /> },
               { path: 'coordinator/tutor-applications/:id', element: <CoordinatorTutorApplicationPage /> },
-              { path: 'coordinator/*', element: <ComingSoonPage title="Coordinator" issue={35} /> },
+              { path: 'coordinator', element: <CoordinatorHomePage /> },
+              { path: 'coordinator/tutors', element: <CoordinatorTutorsPage /> },
+              { path: 'coordinator/tutors/:id', element: <CoordinatorTutorPage /> },
             ],
           },
         ],

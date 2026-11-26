@@ -2,3 +2,4 @@
 // from here, not from the files inside this folder.
 export { ActivityOverview } from './ActivityOverview';
 export { SessionFeedback } from './SessionFeedback';
+export { RatingStars } from './Rating';
