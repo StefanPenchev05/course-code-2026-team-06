@@ -161,3 +161,17 @@ temporary. All login code lives in `features/auth/` so #68 only changes that fol
 **CI:** `.github/workflows/frontend.yml` runs lint, typecheck, tests and build on every push or PR that
 changes `frontend/` (on `main` and `features/**` branches). It is separate from Stefan's `backend.yml` and
 doesn't change it; Stefan owns CI, so agree changes to it with him.
+
+
+---
+
+## 7. Status of #53 (problem report inbox)
+
+| What it covers | Where |
+|---|---|
+| Faculty-scoped inbox of open and resolved reports, oldest first, 25 at a time | `features/issueInbox/IssueInbox.tsx` on `/coordinator/issues` (`?status=resolved`) |
+| Report detail with description, topic (general or a session) and short references | `features/issueInbox/IssueReview.tsx` on `/coordinator/issues/:id` |
+| One-time resolution with a required note (1–2000 UTF-8 bytes); the page says it changes no session, attendance or account | `IssueReview.tsx`, `rules.ts` |
+| Already resolved (409) shows the stored resolution; another faculty's report (404) is explained | `IssueReview.tsx` |
+| Tests | `features/issueInbox/IssueInbox.test.tsx` and `rules.test.ts`. They use the mocked API, so they are component tests, not integration evidence. |
+| Known limit | The API gives only reporter and session IDs, so the screens show short references, not names or session details. |

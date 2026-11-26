@@ -18,6 +18,9 @@ export function CoordinatorHomePage() {
           reasons.
         </li>
         <li>
+          <Link to="/coordinator/issues">Problem reports</Link>: read and resolve problems reported by students and tutors.
+        </li>
+        <li>
           <Link to="/coordinator/tutor-applications">Tutor applications</Link>: approve or reject students who want to tutor.
         </li>
       </ul>
