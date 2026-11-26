@@ -137,8 +137,8 @@ Milestone **M7 – Frontend MVP**. Ownership below is a proposal. Confirm it, th
 | – | #34 / #55 | Feedback form, tutor activity dashboard (overlap: track as one) | Anastasiia | ✅ |
 | – | #51 | Coordinator verification queue | Anastasiia | ✅ |
 | – | #54 | Coordinator no-show adjudication | Anastasiia | ✅ |
-| – | #52 / #53 | Report a problem, coordinator issue inbox | Anastasiia | ⚠️ API only on branch `feature/feedback_coordinator_operations` (not merged) |
-| – | #35 | Remaining coordinator screens (monitoring, policy cancellation) | Anastasiia | ⚠️ same branch |
+| – | #52 / #53 | Report a problem, coordinator issue inbox | Anastasiia | ✅ (merged to `main`) |
+| – | #35 | Remaining coordinator screens (monitoring, policy cancellation) | Anastasiia | ✅ (merged to `main`) |
 | – | #56 | Violation flags and suspension | Anastasiia | ❌ blocked on #25, #26, #48, #49 |
 | last | #59 | Accessibility and mobile checks | both | – |
 | later | #68 | Uni.lu SSO login | Nicolle | ❌ blocked on #46 (university contract) |
@@ -165,6 +165,17 @@ doesn't change it; Stefan owns CI, so agree changes to it with him.
 
 ---
 
+## 6. Status of #52 (report a problem)
+
+| Acceptance criterion | Where |
+|---|---|
+| Required description and optional authorized session reference | `features/issueReports/ReportForm.tsx` on `/report`; a session card in My sessions opens `/report?session=<id>`. The form only links a session the API returns for this user, and `POST /issues` checks it again. |
+| Not conflated with no-show allegations | Separate page that only calls `POST /issues`; it says it is not a no-show report and doesn't change session outcomes. |
+| Validation and submission feedback without claiming resolution | Description checked before sending (1–2000 UTF-8 bytes); server errors (403, 404, 422) shown in the form with the text kept; the confirmation says a coordinator still has to review the report. |
+| Tests for linked/unlinked report, access denial and errors | `features/issueReports/ReportProblem.test.tsx` and `rules.test.ts`. They use the mocked API, so they are component tests, not integration evidence. |
+
+---
+
 ## 7. Status of #53 (problem report inbox)
 
 | What it covers | Where |
@@ -175,3 +186,17 @@ doesn't change it; Stefan owns CI, so agree changes to it with him.
 | Already resolved (409) shows the stored resolution; another faculty's report (404) is explained | `IssueReview.tsx` |
 | Tests | `features/issueInbox/IssueInbox.test.tsx` and `rules.test.ts`. They use the mocked API, so they are component tests, not integration evidence. |
 | Known limit | The API gives only reporter and session IDs, so the screens show short references, not names or session details. |
+
+---
+
+## 8. Status of #54 (no-show adjudication)
+
+| What it covers | Where |
+|---|---|
+| Faculty-scoped list of no-show reports waiting for a decision, confirmed or rejected, oldest first, 25 at a time | `features/noShowReports/NoShowList.tsx` on `/coordinator/no-show-reports` (`?status=confirmed`, `?status=rejected`) |
+| Report detail: session, reporter and absent participant (short references), time and the reporter's evidence, shown as an allegation | `features/noShowReports/NoShowReview.tsx` on `/coordinator/no-show-reports/:id` |
+| Confirm or reject with a required note (1–2000 UTF-8 bytes); confirming asks a second time and explains the violation, the session correction and flags | `NoShowReview.tsx`, `rules.ts` |
+| Kept apart from general problem reports; opposing reports about one session stay separate entries | Page texts; separate API (`/coordinator/attendance-reports`) |
+| Already decided or no longer allowed (409) shows the current state; another faculty's report (404) is explained | `NoShowReview.tsx` |
+| Tests | `features/noShowReports/NoShowReports.test.tsx` and `rules.test.ts`. They use the mocked API, so they are component tests, not integration evidence. |
+| Known limit | The API gives only user and session IDs, so the screens show short references, not names or session details. |
