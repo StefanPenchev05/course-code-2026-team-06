@@ -20,6 +20,7 @@ import { CoordinatorTutorPage } from '../pages/CoordinatorTutorPage';
 import { CoordinatorTutorsPage } from '../pages/CoordinatorTutorsPage';
 import { CoordinatorVerificationPage } from '../pages/CoordinatorVerificationPage';
 import { CoordinatorVerificationsPage } from '../pages/CoordinatorVerificationsPage';
+import { ReportProblemPage } from '../pages/ReportProblemPage';
 
 /**
  * All screens of the app. Replace a ComingSoonPage with the real page when
@@ -49,6 +50,7 @@ export const routes: RouteObject[] = [
               { path: 'tutors/:id', element: <TutorProfilePage /> },
               { path: 'sessions', element: <MySessionsPage /> },
               { path: 'tutor-applications', element: <TutorApplicationsPage /> },
+              { path: 'report', element: <ReportProblemPage /> },
             ],
           },
           {

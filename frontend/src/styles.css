@@ -180,3 +180,7 @@ textarea.field__input { resize: vertical; min-height: 5rem; }
 .schedule-entry .card__meta { margin: 0.25rem 0 0; }
 .schedule-nav { margin-bottom: var(--space); }
 .tutor-card__name { margin: 0; font-size: 1.1rem; }
+
+
+/* Problem reports (#52) */
+.session__report { margin: 0.5rem 0 0; font-size: 0.9rem; }

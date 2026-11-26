@@ -50,6 +50,9 @@ export function HomePage() {
             <li>
               <Link to="/tutor-applications">Become a tutor</Link>
             </li>
+            <li>
+              <Link to="/report">Report a problem</Link>
+            </li>
           </>
         )}
         {hasRole(user, 'tutor') && (

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Link } from 'react-router';
 import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
 import { Alert, Button, TextArea } from '../../shared/ui';
 import { browserTimeZone, MODE_LABEL } from '../../shared/utils/datetime';
@@ -80,6 +81,11 @@ export function SessionCard({ session, onChanged, timeZone = browserTimeZone() }
             Cancel session
           </Button>
         ))}
+              <p className="session__report">
+        <Link to={`/report?session=${session.id}`} aria-label={`Report a problem with ${session.subject_name} on ${when.format(new Date(session.starts_at))}`}>
+          Report a problem
+        </Link>
+      </p>
     </li>
   );
 }
