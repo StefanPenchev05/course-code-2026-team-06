@@ -51,6 +51,9 @@ npm run test:a11y  # only the accessibility, mobile and keyboard journeys (#59)
 
 ### A test account
 
+For ready-to-use student, tutor, coordinator and pending-student accounts
+without SMTP, see [local demo accounts](../docs/local-demo.md).
+
 Open http://localhost:5173/register and sign up with an address on a domain listed in
 `UNIVERSITY_EMAIL_DOMAINS` (for example `you@example.test`). With the catalog fixture loaded,
 choose a "Demo" faculty and its program. You're logged in straight away; until a coordinator

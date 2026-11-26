@@ -54,3 +54,12 @@ python3 backend/tests/integration/test_schema.py
 ```
 
 The PostgreSQL/Redis suite checks duplicate submissions, rating and comment privacy, faculty restrictions, discovery aggregation, fractional teaching hours, upcoming sessions, and no-show corrections racing feedback.
+
+## Realtime activity invalidations (#88)
+
+Completion, feedback insertion and corrections out of `COMPLETED` transactionally
+capture `activity.changed` with only the tutor ID. The tutor, current home-faculty
+monitoring coordinator and authorized viewers holding a live tutor watch can
+receive it. Statistics still derive from authoritative sessions/feedback; private
+comments and authors never enter the event. See [delivery and HTTP refetch
+rules](realtime-delivery.md); the React consumer remains #90/#93.

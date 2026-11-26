@@ -50,3 +50,4 @@ export TUTTI_TEST_REDIS_URL="redis://${redis_port}/0"
 migrate -path migrations -database "$TUTTI_TEST_DATABASE_URL" up
 go test "$@" -count=1 -v ./tests/integration
 psql -X -v ON_ERROR_STOP=1 "$TUTTI_TEST_DATABASE_URL" -f ops/notifications.sql
+psql -X -v ON_ERROR_STOP=1 "$TUTTI_TEST_DATABASE_URL" -f ops/realtime.sql

@@ -175,6 +175,11 @@ func (f *policyFixture) state(t *testing.T, id string) string {
 }
 func (f *policyFixture) cancelled(t *testing.T, id string, actor int, reason, from string) {
 	t.Helper()
+	events := 2
+	if from == "ACCEPTED" {
+		events = 3
+	}
+	f.count(t, events, "SELECT count(*) FROM realtime_events WHERE event_type='booking.changed' AND entity_id=$1", id)
 	f.count(t, 1, `SELECT count(*) FROM tutoring_sessions s JOIN session_status_history h ON h.session_id=s.id
 		WHERE s.id=$1 AND s.status='CANCELLED' AND NOT s.is_late_cancellation AND s.cancelled_by_user_id=$2
 		AND s.cancellation_reason=$3 AND h.from_status::text=$4 AND h.to_status='CANCELLED' AND h.actor_kind='USER'
