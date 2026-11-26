@@ -12,7 +12,7 @@ The existing migration defines `faculties`, `programs`, `subjects`, and `program
 
 ## API
 
-All routes below are `GET` requests under `/api/v1`. The protected routes require a valid Tutti session cookie. Pending and rejected students can use these academic lookups while signed in.
+All routes below are `GET` requests under `/api/v1`. The protected routes require a valid Tutti session cookie. Pending and rejected students can use these academic lookups while signed in, except the tutor-only semester endpoint described below.
 
 | Route | Access | Result |
 | --- | --- | --- |
@@ -22,6 +22,7 @@ All routes below are `GET` requests under `/api/v1`. The protected routes requir
 | `/programs/{id}/subjects` | Authenticated | Page of canonical subjects linked to that program. |
 | `/subjects` | Authenticated | Page of university-wide subject results. |
 | `/subjects/{id}` | Authenticated | Canonical subject ID, code, and name. |
+| `/semesters` | Active verified tutor | Current/upcoming calendar, ordered by start and ID; see the contract below. |
 | `/public/faculties` | Public | Same faculty list for registration. |
 | `/public/faculties/{id}/programs` | Public | Same program list and optional level filter for registration. |
 
@@ -82,7 +83,7 @@ The Go integration runner tests both Catalog and Identity against the existing m
 
 Membership checks use `EXISTS` with the existing composite primary key. Program lists use the existing faculty and level index, while subject search uses parameterized substring queries and fetches one extra row per page for `has_more`. There are no new indexes. Global substring search can scan the subject catalog, and large offsets take more work. Revisit query plans as catalog size grows.
 
-## Tutor semester picker (#31)
+## Tutor semester picker (#99; supports #31)
 
 `GET /api/v1/semesters` uses existing authenticated sessions and requires the
 same current `CanTutor` permission as availability creation: an active, approved
@@ -102,7 +103,11 @@ rows, availability, history, notifications or realtime events. There is no publi
 variant or HTTP write endpoint; trusted calendar maintenance remains operator-only.
 The frontend can use the returned ID as `semester_id` when creating weekly rules;
 Scheduling still revalidates the chosen semester and generated occurrences in the
-write transaction. No migration or frontend change is required for this API.
+write transaction. No migration is required for this API. The current frontend lists/edits/deletes weekly rules
+but has no weekly-rule creation form or semester fetch adapter. Issue #31 must add
+a selector using `data[].id` (UUID string) as `semester_id`, display the name and
+bounds, and handle loading, errors and an empty calendar. The existing one-off form
+is separate. Backend readiness does not imply frontend selector integration.
 
 The HTTP application method `CalendarService.ListForTutor` delegates to the same
 `CalendarService.List` use case and `CalendarRepository.CalendarTransaction`
@@ -114,3 +119,6 @@ strings, matching the existing schema; numeric IDs in illustrative examples are
 not the repository's ID format. Successful reads use 200; malformed query
 parameters use 400; authentication/permission failures use 401/403, and unexpected
 infrastructure errors use the existing sanitized 500 response.
+
+The scoped [OpenAPI 3 contract](openapi/catalog.yaml) and
+[issue #99 verification matrix](semester-api-verification.md) record the API and test evidence.

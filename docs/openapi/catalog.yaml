@@ -1,0 +1,116 @@
+openapi: 3.0.3
+info:
+  title: Tutti tutor semester catalog
+  version: 1.0.0
+  description: >-
+    Scoped contract for issue 99 (FR12, UC08, D2 C9). This document describes
+    the semester picker endpoint only, not the complete Tutti API.
+paths:
+  /api/v1/semesters:
+    get:
+      operationId: listTutorSemesters
+      summary: List current and upcoming semesters for an active verified tutor
+      description: >-
+        Requires the existing opaque Redis-backed Identity session and current
+        CanTutor permission (approved active student and active tutor profile).
+        Returns the global calendar with ends_at strictly after trusted server
+        time, ordered by starts_at ascending then UUID id ascending. A semester
+        ending exactly at that reference time is excluded. Timestamps are UTC.
+        All query parameters, including client time overrides, are rejected.
+        Read-only: no calendar administration, operator receipts or internal
+        reports are exposed. Scheduling revalidates semester_id on rule creation.
+      security:
+        - secureSession: []
+        - developmentSession: []
+      responses:
+        '200':
+          description: Current and upcoming semesters; data is an empty array if none qualify
+          headers:
+            Cache-Control:
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Semester'
+              examples:
+                empty:
+                  value: {data: []}
+                current:
+                  value:
+                    data:
+                      - id: '00000000-0000-0000-0000-000000000406'
+                        name: Synthetic semester
+                        starts_at: '2027-01-01T00:00:00Z'
+                        ends_at: '2027-07-01T00:00:00Z'
+        '400':
+          description: Unknown, repeated or malformed query parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Missing, invalid, expired or revoked session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '403':
+          description: Pending/rejected or non-tutor student, inactive tutor, coordinator-only, suspended or closed account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '500':
+          description: Infrastructure failure; persistence details are never returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example: {error: internal server error}
+components:
+  securitySchemes:
+    secureSession:
+      type: apiKey
+      in: cookie
+      name: __Host-tutti_session
+      description: Identity session cookie when PUBLIC_ORIGIN uses HTTPS
+    developmentSession:
+      type: apiKey
+      in: cookie
+      name: tutti_session
+      description: Identity session cookie for local HTTP development only
+  schemas:
+    Semester:
+      type: object
+      additionalProperties: false
+      required: [id, name, starts_at, ends_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        starts_at:
+          type: string
+          format: date-time
+          description: Absolute start instant in UTC RFC3339
+        ends_at:
+          type: string
+          format: date-time
+          description: Absolute exclusive end instant in UTC RFC3339
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
