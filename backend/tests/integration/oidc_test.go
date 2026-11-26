@@ -185,11 +185,6 @@ func TestOIDCLoginInitiation(t *testing.T) {
 	if _, err := store.Consume(ctx, state, binding); !errors.Is(err, domain.ErrOIDCTransaction) {
 		t.Fatal("replayed initialization")
 	}
-	callback := httptest.NewRecorder()
-	mux.ServeHTTP(callback, httptest.NewRequest("GET", "/api/v1/auth/oidc/callback", nil))
-	if callback.Code != 400 {
-		t.Fatal("malformed callback not rejected")
-	}
 	mock.Close()
 	unavailable := httptest.NewRecorder()
 	mux.ServeHTTP(unavailable, httptest.NewRequest("GET", "/api/v1/auth/oidc/login", nil))

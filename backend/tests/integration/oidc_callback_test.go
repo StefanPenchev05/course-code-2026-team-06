@@ -103,6 +103,11 @@ func TestOIDCVerifiedCallback(t *testing.T) {
 	h.RegisterRoutes(mux)
 	h.RegisterOIDC(mux, application.NewOIDCLogin(provider, store, config.TransactionTTL), sessionredis.NewOIDCLimiter(client).Allow)
 	h.RegisterOIDCCallback(mux, application.NewOIDCAuthentication(application.NewOIDCCallback(provider, store, config.Issuer), resolver, service), "/sessions")
+	malformed := httptest.NewRecorder()
+	mux.ServeHTTP(malformed, httptest.NewRequest("GET", "/api/v1/auth/oidc/callback", nil))
+	if malformed.Code != 400 {
+		t.Fatal("malformed callback accepted")
+	}
 	start := httptest.NewRecorder()
 	mux.ServeHTTP(start, httptest.NewRequest("GET", "/api/v1/auth/oidc/login", nil))
 	if start.Code != 302 {
