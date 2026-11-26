@@ -10,7 +10,7 @@ The updated issue and course-demo instruction supersede the official-institution
 - **OpenID Connect (OIDC)** adds authentication to OAuth 2.0, including discovery and a signed ID token identifying an authenticated subject.
 - An **IdP** authenticates a user and issues assertions/tokens. Keycloak supplies that role locally; Tutti retains application authorization.
 - A **realm** is an isolated identity/configuration boundary. `tutti-demo` is separate from the `master` administration realm.
-- An **OIDC client** is an application registered with the IdP, including its credentials, allowed flows and callbacks. `tutti-backend` represents the future Go server.
+- An **OIDC client** is an application registered with the IdP, including its credentials, allowed flows and callbacks. `tutti-backend` represents the Go server.
 - **SSO** means an existing IdP browser session can authenticate the user to multiple independent clients without another credential prompt. One provider login alone does not demonstrate this. A later demonstration should use two independent OIDC clients sharing the Keycloak browser session; no second application/client is supplied by #46; the Go callback is separate #65 work.
 
 ## Configuration contract
@@ -31,7 +31,7 @@ The updated issue and course-demo instruction supersede the official-institution
 | JWKS endpoint | `http://localhost:8180/realms/tutti-demo/protocol/openid-connect/certs` |
 | Client | `tutti-backend`, confidential OIDC, client-secret authentication |
 | Allowed flow | Authorization Code with mandatory S256 PKCE; no implicit flow, direct/password grants, service accounts, device, CIBA, standard token exchange or JWT bearer grants |
-| Exact callback | `http://localhost:8080/api/v1/auth/oidc/callback` — implemented for Stage 2 protocol verification only |
+| Exact callback | `http://localhost:8080/api/v1/auth/oidc/callback` — integrated by #65 for prelinked-account sessions |
 | Browser origin | Exactly `http://localhost:8080`; no wildcard origins or redirects |
 | OIDC scopes | Request `openid profile email`; no application-role mapping |
 | Secrets | Local `KEYCLOAK_ADMIN_USERNAME`, `KEYCLOAK_ADMIN_PASSWORD`, `TUTTI_OIDC_CLIENT_SECRET`; no defaults |
@@ -80,7 +80,7 @@ No users or passwords are imported. In the console, select **tutti-demo**, then 
 
 Enable each user and set a unique local password under **Credentials**; use the temporary-password option if you want first-login replacement. Supply name/email so the account profile can complete. Do not use real student numbers, real email addresses, real university passwords, or commit realm exports containing credential hashes. These are scenario names, **not Tutti roles**. Do not assign realm-admin privileges to demo users or map IdP roles to application coordinator/tutor privileges. Email verification in this synthetic realm is not university verification.
 
-To try provider login before #65, visit `http://localhost:8180/realms/tutti-demo/account/` using a synthetic user. This logs into Keycloak's own account console, not Tutti. The account console does not authenticate Tutti. The integrated #65 backend can now establish a Tutti session only for an explicitly prelinked eligible identity; it never creates an account or grants privileges from claims. Student verification, tutor approval, coordinator/faculty access and suspension remain server-side Tutti decisions.
+To try provider login independently of Tutti, visit `http://localhost:8180/realms/tutti-demo/account/` using a synthetic user. This logs into Keycloak's own account console, not Tutti. The account console does not authenticate Tutti. The integrated #65 backend can now establish a Tutti session only for an explicitly prelinked eligible identity; it never creates an account or grants privileges from claims. Student verification, tutor approval, coordinator/faculty access and suspension remain server-side Tutti decisions.
 
 ## Inspect and verify
 
@@ -315,8 +315,9 @@ a new demo provider and reuses disposable PostgreSQL/Redis test infrastructure.
 The committed callback stays localhost:8080; only the owned test client's callback
 is temporarily configured to an exact available test port.
 
-The tutor, pending-student, coordinator, unknown-identity and suspended-tutor
-browser journeys passed against the actual Go bootstrap and Keycloak. The test
+Six browser journeys passed against the actual Go bootstrap and Keycloak:
+tutor rotation/logout, pending student, coordinator with cross-faculty denial,
+suspension of an existing SSO session, unknown identity and pre-suspended tutor. The test
 checks rotation, protected reads, local logout and empty application browser
 storage. This is direct navigation to the backend login endpoint, not a React SSO
 button or two-client SSO demonstration. Test credentials are random/in-memory,

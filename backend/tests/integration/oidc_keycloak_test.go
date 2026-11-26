@@ -95,14 +95,14 @@ func TestOIDCKeycloakBrowser(t *testing.T) {
 		SuspendAfterLogin   bool     `json:"suspendAfterLogin,omitempty"`
 	}
 	var foreignVerification string
-	if err := f.db.QueryRow(ctx, "SELECT id::text FROM student_verifications WHERE student_id=$1", fixture(bookingOtherStudent)).Scan(&foreignVerification); err != nil {
+	if err := f.db.QueryRow(ctx, "SELECT id::text FROM student_verifications WHERE student_id=$1", fixture(bookingStudent)).Scan(&foreignVerification); err != nil {
 		t.Fatal("missing out-of-faculty verification fixture")
 	}
 	users := []browserUser{
 		{Scenario: "approved tutor rotation and logout", ID: fixture(bookingTutor), Status: 200, Verified: true, Roles: []string{"student", "tutor"}, Semesters: 200, OldSession: f.cookie[bookingTutor].Value},
 		{Scenario: "pending student remains restricted", ID: fixture(bookingPending), Status: 200, Roles: []string{"student"}, Semesters: 403},
 		{Scenario: "coordinator retains database faculty authority", ID: fixture(bookingCoordinator), Faculty: fixture(401), ForeignVerification: foreignVerification, Status: 200, Roles: []string{"coordinator"}, Semesters: 403},
-		{Scenario: "suspension blocks an existing SSO session", ID: fixture(bookingStudent), Status: 200, Verified: true, Roles: []string{"student"}, Semesters: 403, SuspendAfterLogin: true},
+		{Scenario: "suspension blocks an existing SSO session", ID: fixture(bookingOtherStudent), Status: 200, Verified: true, Roles: []string{"student"}, Semesters: 403, SuspendAfterLogin: true},
 		{Scenario: "unknown identity rejected", Status: 401},
 		{Scenario: "suspended tutor rejected", ID: fixture(bookingOtherTutor), Status: 403},
 	}
