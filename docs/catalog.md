@@ -103,3 +103,14 @@ variant or HTTP write endpoint; trusted calendar maintenance remains operator-on
 The frontend can use the returned ID as `semester_id` when creating weekly rules;
 Scheduling still revalidates the chosen semester and generated occurrences in the
 write transaction. No migration or frontend change is required for this API.
+
+The HTTP application method `CalendarService.ListForTutor` delegates to the same
+`CalendarService.List` use case and `CalendarRepository.CalendarTransaction`
+used by the CLI, in a repeatable-read, read-only transaction. It filters the
+returned chronological listing at the receipt's trusted `action_at` timestamp;
+there is no second semester SQL query or repository interface. The CLI continues
+to list all semesters and retain its existing receipt metadata. IDs remain UUID
+strings, matching the existing schema; numeric IDs in illustrative examples are
+not the repository's ID format. Successful reads use 200; malformed query
+parameters use 400; authentication/permission failures use 401/403, and unexpected
+infrastructure errors use the existing sanitized 500 response.

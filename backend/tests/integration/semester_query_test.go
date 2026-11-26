@@ -23,7 +23,7 @@ func TestTutorSemesterAPI(t *testing.T) {
 	now := f.start
 	repo := catalogpg.New(f.db)
 	h := cataloghttp.New(catalog.New(repo), slog.Default())
-	h.RegisterSemesters(f.a.handler.(*http.ServeMux), catalog.NewSemesters(repo, func() time.Time { return now }), f.auth.RequireAuthentication)
+	h.RegisterSemesters(f.a.handler.(*http.ServeMux), catalog.NewCalendar(catalogpg.NewCalendar(f.db, catalogpg.CalendarDependencies{}), func() time.Time { return now }), f.auth.RequireAuthentication)
 	for _, v := range []struct {
 		id         int
 		start, end time.Time
