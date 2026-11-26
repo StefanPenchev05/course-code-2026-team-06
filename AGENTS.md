@@ -7,7 +7,7 @@
 > **Repository:** `StefanPenchev05/course-code-2026-team-06`  
 > **Project board:** <https://github.com/users/StefanPenchev05/projects/11>
 >
-> **Important:** This guide describes the repository inspected on `main` on 2026-11-19. It is not a substitute for inspecting the actual working tree. **Current code, applied migrations, and tests take precedence over assumptions in this file.**
+> **Important:** This guide builds on the repository inspected on `main` on 2026-11-19 and the real-time planning review on 2026-11-23. It is not a substitute for inspecting the actual working tree. **Current code, applied migrations, and tests take precedence over assumptions in this file.**
 
 ## 1. Mission and working agreement
 
@@ -109,7 +109,7 @@ course-code-2026-team-06/
     └── [requirements / UML documents]# Stakeholders, user stories, use cases, models
 ```
 
-**Current vs planned:** The project README names **React + TypeScript** for the frontend and **C** as part of the intended stack, but the inspected `main` branch has **no `frontend/` or C implementation directory**. Do not claim either exists or generate a large scaffold unless the task specifically requests it. When implementing the frontend, first inspect the actual repository again; the architecture proposal favors `frontend/src/app`, `pages`, `features`, and `shared`.
+**Current vs planned:** The project README names **React + TypeScript** for the frontend and **C** as part of the intended stack, but as checked on 2026-11-23 `frontend/` contains only `.gitkeep` and there is no implemented C integration directory. Do not claim either exists or generate a large scaffold unless the task specifically requests it. When implementing the frontend, first inspect the actual repository again; the architecture proposal favors `frontend/src/app`, `pages`, `features`, and `shared`.
 
 ## 5. Runtime and coding architecture
 
@@ -220,7 +220,8 @@ These are intentionally brief. **Read the relevant detailed guide and migrations
 | **Email / jobs / worker** | `docs/workers.md`, `internal/notifications`, `platform/worker`, `bootstrap/worker.go`, migration `000009` | Lease reclaim, retry safety, SMTP at-least-once, provider acceptance vs inbox delivery, graceful shutdown. |
 | **Database / migrations** | `docs/database/implementation.md`, **all** current migration pairs and their dependent adapters | Forward + rollback tests, real PostgreSQL constraints, irreversible data impacts, booking trigger behavior. |
 | **HTTP routing / integration** | `bootstrap/identity.go`, relevant module's `interfaces/http`, `docs/identity.md` | API route conflicts, CSRF/same-origin, JSON shape, pagination, error codes, middleware consistency. |
-| **Frontend (future)** | Check whether `frontend/` now exists; `README.md`, `docs/identity.md`, `docs/catalog.md`, API module guides | React/TypeScript, same-origin cookie auth, no secret or grade leakage, mobile usability, existing API contracts. |
+| **Frontend (future)** | Check whether frontend source now exists; `README.md`, `docs/identity.md`, `docs/catalog.md`, API module guides | React/TypeScript, same-origin cookie auth, no secret or grade leakage, mobile usability, existing API contracts. |
+| **Real-time / WebSockets** | `docs/realtime.md`, `docs/identity.md`, `internal/identity/interfaces/http/middleware.go`, `bootstrap/identity.go`, `docs/workers.md` | Cookie auth before upgrade, exact Origin, TimeoutHandler bypass only for socket route, authorization/faculty isolation, bounded connections, no pre-commit publication, worker fanout and reconnect resync. |
 | **CI / Docker / deployment** | `.github/workflows/backend.yml`, `compose.yaml`, `.env.example`, `backend/Dockerfile`, `docs/workers.md` | No secrets, migration ordering, service health, CI parity, deploy vs package distinction. |
 
 ## 8. Development and verification commands
@@ -315,7 +316,22 @@ At the end of a task, leave a concise handoff in the issue/PR/conversation with 
 
 **When handing work to a parallel agent**, identify the exact files/modules you own, any shared-file conflict, expected input/output interfaces, and which agent is responsible for integration tests and bootstrap wiring. Do not claim that code was committed, deployed, emailed, or verified unless the corresponding action actually succeeded.
 
-## 12. Priorities for future agents
+## 12. Real-time events and WebSocket work (#84–#94)
+
+**Planning reference:** `docs/realtime.md` is the version-1 protocol/design baseline; `docs/codex-realtime-foundation.md` is the scoped Codex handoff for #85/#86. These are **proposals until implemented and tested**, not evidence that real-time transport exists.
+
+- **Implementation sequence:** #85 event contract → #86 authenticated gateway → #87 scheduling event publication → #90 shared React client → #91/#92 booking/availability UX → #88 coordination/feedback publishers → #93 coordinator UX → #89/#94 load/security/browser E2E. Keep each task narrowly scoped.
+- **Session security:** `GET /ws` must reuse Identity's authenticated opaque Redis session and validate the exact trusted browser Origin **before upgrading**. Check current account, suspension, role and faculty privileges server-side; do not authorize arbitrary client-declared rooms, IDs, roles or faculties. Plan periodic/session-change revalidation for long-lived connections.
+- **HTTP server hazard:** `backend/internal/bootstrap/identity.go` currently passes the entire mux through `http.TimeoutHandler` (10 seconds). An upgrade/hijacked WebSocket connection cannot run through that wrapper. Arrange a dedicated route/handler bypass with its own liveness timeouts and shutdown, **without weakening normal HTTP request timeouts**.
+- **Domain invariants:** Database writes, eligibility checks, audit history, booking locks and email outbox remain the source of truth. Publish change notifications only **after successful commit**; no notification after rollback. An unavailable socket consumer must not invalidate an already committed business write.
+- **Transport boundaries:** The connection hub belongs in platform infrastructure and is wired by bootstrap. Business application code depends on narrow publisher ports, not the hub implementation or HTTP handlers. Do not turn WebSockets into a second mutable API or a duplicate authentication layer.
+- **Data minimization:** Use a versioned event envelope with an opaque event ID, type and minimal scoped identifier where needed. Do not broadcast grades, feedback comments, emails, student numbers, private disciplinary evidence/reasons, access tokens or arbitrary complete domain objects.
+- **Workers and scale:** The worker is a separate process; API-local callbacks cannot report worker-originated expiry. For #87 plan transactional event storage/dispatch and for #89 address multiple API replicas (e.g. Redis pub/sub for transient fanout). Do not confuse pub/sub with durable event history or automatic replay.
+- **Recovery and safety:** Assume best-effort event delivery. Reconnect with bounded backoff and refetch authorized HTTP data every successful connection to cover missed events. Bound per-connection queues, idle time, resource usage and cleanup; deduplicate event IDs and handle unknown versions safely.
+- **Frontend status:** As inspected for this planning work on 2026-11-23, `frontend/` contains only `.gitkeep`. Do not assume React providers, components or cache libraries already exist. Coordinate with the frontend foundation work (#27) and the #90 owner before creating a shared client.
+- **Verification:** Cover cookie auth, exact Origin, rejected/suspended sessions, cross-faculty isolation, concurrent connections, timeout bypass, slow-client disconnect, shutdown, transaction rollback, worker publication, reconnect/resync and multiple browser contexts. Report which suites actually ran.
+
+## 13. Priorities for future agents
 
 Use the current GitHub issue/milestone as the task scope. As of the inspected `main`, core backend modules through Feedback are present. The docs still identify additional work in **general issue-report resolution, coordinator account suspension/reinstatement and monitoring, operational hardening, the React frontend, and Release 1 features**. These are planning directions, **not** permission to implement everything in one task.
 

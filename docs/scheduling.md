@@ -211,3 +211,7 @@ python3 backend/tests/integration/test_schema.py
 The service-backed suite uses the migrated PostgreSQL schema and Redis. Stage 1 exercises availability management and protected deletion. Stage 2 covers cross-faculty booking, cross-role and concurrent overlap checks, an offering deactivation or slot deletion racing a request, response and expiration races, the semester flag threshold, and rollback when history or notification persistence fails.
 
 See [Feedback](feedback.md) for rating completed sessions and how a no-show correction affects active ratings and teaching hours.
+
+## Realtime publication (#87)
+
+Migration 17 captures booking status, availability and participant-reservation changes in a dedicated transactional outbox. API dispatchers fan out committed event IDs over Redis, including writes from the separate expiration worker and administrative cancellation/attendance paths. Existing history, email and locking workflows are unchanged. See [realtime delivery](realtime-delivery.md) for capture coverage, current recipient authorization, the availability-watch API, retries, migration ordering and #90/#89 handoff.

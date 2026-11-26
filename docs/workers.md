@@ -216,3 +216,7 @@ finally {
 For an approved unauthenticated TLS relay leave both auth fields unset. Alternatively set `SMTP_PASSWORD_FILE` to a protected **host** file and leave `SMTP_PASSWORD` unset; this probe script mounts it read-only automatically, as it does a host `SMTP_CA_FILE` when supplied. Normal Compose still needs the explicit mounts described above.
 
 Record the printed notification ID, UTC test time, provider/mode, safe failure category or `SMTP accepted` result, and the recipient's confirmation of inbox/spam arrival with the matching subject ID. Do not attach credentials or private mail content. `SMTP accepted` alone is **not** inbox delivery. The probe database is removed on exit; retain the sanitized test output as evidence. Re-running creates a new test message; after an ambiguous timeout check with the provider/recipient before repeating. Real university delivery remains unverified until this evidence is collected.
+
+## Scheduling realtime events (#87)
+
+After migration 17, the worker's existing expiration transaction also creates dedicated realtime outbox rows through Scheduling persistence triggers. The worker still needs no Redis connection: each API process dispatches committed rows and subscribes to shared Redis fanout, so worker changes reach every API-hosted hub. If APIs are offline, rows remain pending. This does not change SMTP delivery or its outbox. See [realtime delivery](realtime-delivery.md).

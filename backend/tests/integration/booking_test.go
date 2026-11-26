@@ -44,6 +44,8 @@ type bookingFixture struct {
 	clock   atomic.Int64
 	start   time.Time
 	cookie  map[int]*http.Cookie
+	auth    *identityhttp.Handler
+	redis   *redis.Client
 }
 
 const (
@@ -60,13 +62,17 @@ const (
 	bookingOtherOffer      = 442
 )
 
-func newBookingFixture(t *testing.T) *bookingFixture {
+func newBookingFixture(t *testing.T, timeout ...time.Duration) *bookingFixture {
 	t.Helper()
 	dsn, redisURL := os.Getenv("TUTTI_TEST_DATABASE_URL"), os.Getenv("TUTTI_TEST_REDIS_URL")
 	if dsn == "" || redisURL == "" {
 		t.Skip("run tests/integration/test_identity.sh for PostgreSQL and Redis")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	budget := time.Minute
+	if len(timeout) != 0 {
+		budget = timeout[0]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	t.Cleanup(cancel)
 	db, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -99,13 +105,17 @@ func newBookingFixture(t *testing.T) *bookingFixture {
 	f.service = scheduling.NewBooking(repo, func() time.Time { return time.UnixMicro(f.clock.Load()) })
 	mux := http.NewServeMux()
 	auth := identityhttp.New(idService, origin, true, slog.Default())
+	f.auth, f.redis = auth, client
 	auth.RegisterRoutes(mux)
 	schedulinghttp.NewBooking(f.service, slog.Default()).RegisterRoutes(mux, auth)
 	feedbackService := feedback.New(feedbackpg.New(db, feedbackpg.Dependencies{
 		Student: identitypg.LockStudent, Session: schedulingpg.LockStudentSession,
 	}), f.service)
 	feedbackhttp.New(feedbackService, slog.Default()).RegisterRoutes(mux, auth)
-	tutoringService := tutoring.New(tutoringpg.New(db, tutoringpg.Dependencies{}), catalog.New(catalogpg.New(db)), feedbackService)
+	tutoringService := tutoring.New(tutoringpg.New(db, tutoringpg.Dependencies{
+		Catalog:     func(tx pgx.Tx) catalog.AcademicCatalog { return catalog.New(catalogpg.InTransaction(tx)) },
+		LockStudent: identitypg.LockStudent, LockCoordinatorFaculty: identitypg.LockCoordinatorFaculty,
+	}), catalog.New(catalogpg.New(db)), feedbackService)
 	tutoringhttp.New(tutoringService, slog.Default()).RegisterRoutes(mux, auth)
 	attendance := coordpg.NewAttendance(db, coordpg.AttendanceDependencies{
 		LockStudent:            identitypg.LockStudent,
