@@ -1,4 +1,5 @@
 import { expect, request, type APIRequestContext } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 import { E2E, newPassword, testCatalog, uniqueEmail, uniqueStudentNumber } from './env';
 
 /**
@@ -16,7 +17,7 @@ export interface Student {
 }
 
 export function newStudent(prefix: string): Student {
-  return { name: `E2E ${prefix}`, email: uniqueEmail(prefix), studentNumber: uniqueStudentNumber(), password: newPassword() };
+  return { name: `E2E ${prefix} ${randomUUID().slice(0, 8)}`, email: uniqueEmail(prefix), studentNumber: uniqueStudentNumber(), password: newPassword() };
 }
 
 /** A logged-in API session. Each call keeps its own cookie, like a separate browser. */
@@ -87,6 +88,7 @@ export async function verifiedStudent(prefix: string): Promise<Student> {
 export interface FreeWindow {
   startsAt: Date;
   endsAt: Date;
+  mode?: 'ONLINE' | 'ONSITE' | 'BOTH';
 }
 
 /** An approved tutor for this run's subject: application with a private grade, approved by the coordinator. */
@@ -121,7 +123,7 @@ export async function approvedTutorWithFreeTime(
   const api = await loggedIn(tutor.email, tutor.password);
   try {
     const slot = await api.post('/api/v1/tutors/me/availability/slots', {
-      data: { starts_at: window.startsAt.toISOString(), ends_at: window.endsAt.toISOString(), allowed_mode: 'ONLINE' },
+      data: { starts_at: window.startsAt.toISOString(), ends_at: window.endsAt.toISOString(), allowed_mode: window.mode ?? 'ONLINE' },
     });
     expect(slot.status(), `free window: ${await slot.text()}`).toBe(201);
   } finally {
@@ -140,6 +142,7 @@ export async function bookWindow(
   windowId: string,
   startsAt: string,
   description = 'E2E booking that protects this window.',
+  mode: 'ONLINE' | 'ONSITE' = 'ONLINE',
 ): Promise<string> {
   const api = await loggedIn(learner.email, learner.password);
   try {
@@ -150,7 +153,7 @@ export async function bookWindow(
         availability_slot_id: windowId,
         starts_at: startsAt,
         duration_minutes: 60,
-        mode: 'ONLINE',
+        mode,
         purpose: 'EXAM_PREPARATION',
         description,
       },

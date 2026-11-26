@@ -45,7 +45,8 @@ a semester, and that faculty's coordinator with `psql`, the same way
 real `POST /auth/activate-coordinator`. The schema allows one coordinator per faculty, so each run
 gets its own faculty and never touches real ones.
 
-Everything else goes through the real API. `backend.ts` has helpers that do, as API calls, what
+Except for the historical completion fixture described below, business setup goes through the real
+API. `backend.ts` has helpers that do, as API calls, what
 other issues' screens will do (for example the coordinator approving a registration or a tutor
 application, or a tutor publishing free time), so a journey can start from "an approved tutor with
 free time" without depending on screens that don't exist yet.
@@ -84,10 +85,13 @@ free time" without depending on screens that don't exist yet.
 ## Journeys covered (issue #31)
 
 - An approved tutor has one weekly time, created through the real API in setup (the page can't create
-  weekly times yet: the API has no list of semesters to choose from). In the browser the tutor sees
+  weekly times yet, although `GET /semesters` is now available). The test verifies that the semester
+  endpoint returns the provisioned semester. In the browser the tutor sees
   it in its local time and zone, adds a one-off time, gets the real overlap error, edits the weekly
   time, skips one weekly date and restores it. A student then books the one-off time (real
-  `POST /sessions`), and removing it is refused with the "a student has a booking" explanation.
+  `POST /sessions`), and removing it is refused with the "a student has a booking" explanation. After the student
+  cancels via the API, the browser removes the one-off time and deletes the weekly rule. Reloads
+  and authenticated API reads verify that both deletions persisted.
 
 ## Journeys covered (issue #32)
 
@@ -106,9 +110,83 @@ free time" without depending on screens that don't exist yet.
   offered and the real server also refuses completion (409); answering the declined request again
   is refused (409). The students' real API views show ACCEPTED with the link and DECLINED with the
   reason, and the accepted student sees the link in My sessions.
-- **Not covered here:** completing a session that has ended. Booking needs at least 3 hours' notice,
-  the real API uses the real clock, and the database forbids moving a booked session, so no
-  session can end during a run. Component tests cover that path; the backend's own integration
-  tests cover it with a test clock.
+- `session-lifecycle.spec.ts` adds an ended-session completion journey. The tutor confirms that
+  it took place, it leaves the teaching queue, and both participants see Completed after a fresh
+  read. An authenticated API read verifies the completing tutor; SQL reads verify status history
+  and released participant reservations.
+- Onsite acceptance requires a room. A separate student browser sees the accepted room; the tutor
+  cancels from My sessions with a reason, both browsers see the cancellation, and the database
+  confirms reservation release.
+- While a tutor's accept form is open, the student cancels through the real API. Submitting the
+  stale form gets a real 409, shows the conflict, and preserves CANCELLED after reload.
+- A verified student without tutor approval cannot open either tutor screen; the real tutor-only
+  endpoints (including semesters) return 403. Reading or cancelling an unrelated booking returns 404, leaves its status unchanged, and it never appears
+  in that student's session list.
+
+## Historical completion setup
+
+Booking requires at least three hours' notice and a booked schedule is immutable. Waiting for
+hours or overriding the browser clock would not test the server's completion rule. Instead,
+`history-fixture.ts` inserts one accepted session that ended an hour ago, using the participants,
+approved offering, policy, faculty and semester of a real API-created booking. It inserts the
+corresponding status history in the same transaction, with all database constraints and triggers
+still enabled. The future reference request is declined through the real API. **Only the subsequent
+completion is claimed as a browser-to-backend mutation**, not the seeded historical acceptance.
+`database.ts` centralizes psql access and quotes fixture values with psql variables.
+
+## Repeatability and boundaries
+
+Every journey provisions its own users, tutors and availability; visible names are unique as well
+as emails and student numbers, so repeated discovery tests cannot match an earlier tutor. Each
+run provisions its own catalog/coordinator. No journey needs another test to run first. For example:
+
+```sh
+E2E_DATABASE_URL="$DATABASE_URL" npm run test:e2e -- --repeat-each=2
+```
+
+No requests are intercepted or fulfilled by a fake API. API helpers deliberately bypass only
+screens outside the journey's scope. Existing unit/component mocks remain in the separate suite.
+The current implemented screens are account entry/verification, tutor discovery/profile, My
+sessions, tutor availability and Teaching; all have real-backend journeys. Tutor applications and
+coordinator routes remain placeholder pages, and weekly-rule creation has no UI yet. These tests
+do not claim those features, feedback submission, email delivery, OIDC, or WebSocket recovery are
+covered. The unrelated-user check uses the same faculty; cross-faculty authorization remains the
+backend integration suite's responsibility. Chromium desktop is the configured browser; mobile
+and other browser engines are not exercised here.
 
 Failed runs keep a screenshot and trace in `test-results/` (`npx playwright show-trace <file>`).
+
+## Validation handoff (2026-11-26)
+
+- Task: extend real-backend coverage for implemented screens; branch `main`. Changes are tests,
+  fixture helpers and this documentation only, with no backend business changes or migrations.
+- Inspected: account/tutor/availability/booking pages and routes, existing browser helpers and
+  journeys, scheduling HTTP/application code, session/history/reservation constraints, and
+  AGENTS.md frontend §§14/17.
+- Changed files: `session-lifecycle.spec.ts` (four new journeys), `availability.spec.ts` (release
+  and deletion), `backend.ts` (unique visible names, optional onsite mode), `database.ts` and
+  `history-fixture.ts` (controlled SQL setup/read assertions), `global-setup.ts` (shared SQL helper),
+  `tutor-sessions.spec.ts` (coverage comment), and this README.
+- Environment: actual Go API, fresh disposable PostgreSQL 17 and Redis, all 18 migrations,
+  Vite and Playwright Chromium. Existing development services were left alone. Port 8080 was
+  occupied, so this run used a temporary untracked Vite proxy configuration pointing at the
+  disposable API's alternate loopback port; the application and test configuration were unchanged.
+- Commands from `frontend/`: `npm run test:e2e -- --repeat-each=2 --trace on` (28/28 passed),
+  `npm test` (101/101 passed), `npm run typecheck`, `npm run lint`, `npm run build` (all passed).
+  After adding the unauthorized cancellation assertion, the four new journeys were also rerun
+  twice standalone (8/8 passed); typecheck and lint passed again.
+  Browser traces were saved outside the repository. Trace inspection found no page exceptions
+  or received 5xx responses; browser console resource errors were expected 401/403/409/422 cases.
+- Integration observation: the API logs some scheduling GET requests as `request failed` / 500
+  around navigation/reloads (availability, own sessions, tutor requests). The recorded browser
+  responses contain no 5xx and all workflows passed. Request cancellation is a possible cause,
+  but these tests do not prove it. Follow up on cancellation/error logging separately; no backend
+  error mapping or business rule was changed to silence it.
+- Remaining scope: weekly-rule creation still needs a frontend control despite the semester API
+  now existing; coordinator and tutor-application pages are placeholders. Consult this coverage
+  inventory and `session-lifecycle.spec.ts` first when adding those journeys. No fake API is used
+  by E2E; existing fake API unit tests remain intact. Browser plugin was unavailable, so the
+  repository's Playwright runner was used. No claim of mobile, cross-engine or visual regression
+  testing is made. Backend Go unit/race suites were not rerun because only frontend test files
+  changed; the real running backend handled every E2E request. No commits, pushes, issue updates
+  or deployment were performed.

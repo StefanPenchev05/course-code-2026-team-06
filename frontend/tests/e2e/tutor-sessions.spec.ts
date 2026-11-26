@@ -8,7 +8,7 @@ import { logIn } from './ui';
 // Completing a session needs its scheduled end to have passed, while booking needs at least
 // three hours' notice; the real API uses the real clock and the database forbids moving a
 // booked session. So this journey checks that completion is NOT offered (and is refused by the
-// server) before the end. Completing an ended session is covered by component tests.
+// server) before the end. Completing an ended session is covered by session-lifecycle.spec.ts with a historical starting fixture.
 
 test.use({ locale: 'en-US', timezoneId: 'Europe/Luxembourg' });
 
