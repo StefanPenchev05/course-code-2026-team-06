@@ -166,6 +166,8 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 
 	catalogService := catalog.New(catalogpostgres.New(pool))
 	cataloghttp.New(catalogService, logger).RegisterRoutes(mux, identity.RequireAuthentication)
+	cataloghttp.New(catalogService, logger).RegisterSemesters(mux,
+		catalog.NewSemesters(catalogpostgres.New(pool), time.Now), identity.RequireAuthentication)
 	tutoringRepo := tutoringpostgres.New(pool, tutoringpostgres.Dependencies{
 		Catalog:                func(tx pgx.Tx) catalog.AcademicCatalog { return catalog.New(catalogpostgres.InTransaction(tx)) },
 		LockStudent:            postgres.LockStudent,

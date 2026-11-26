@@ -81,3 +81,25 @@ python3 backend/tests/integration/test_schema.py
 The Go integration runner tests both Catalog and Identity against the existing migrations and a disposable Redis instance. It loads the fixture only in the Catalog test.
 
 Membership checks use `EXISTS` with the existing composite primary key. Program lists use the existing faculty and level index, while subject search uses parameterized substring queries and fetches one extra row per page for `has_more`. There are no new indexes. Global substring search can scan the subject catalog, and large offsets take more work. Revisit query plans as catalog size grows.
+
+## Tutor semester picker (#31)
+
+`GET /api/v1/semesters` uses existing authenticated sessions and requires the
+same current `CanTutor` permission as availability creation: an active, approved
+student with an active tutor profile. Anonymous/expired/revoked sessions return
+401; ordinary students, pending/rejected students, inactive tutors, suspended or
+closed accounts and coordinator-only accounts cannot use this endpoint (403).
+
+The response is `{"data":[{"id":"...","name":"...","starts_at":"...Z","ends_at":"...Z"}]}`.
+Only those four fields are returned. The global calendar includes every current
+or upcoming semester (`ends_at >` trusted server time), sorted by `starts_at`
+then `id`. Exactly-ended and past semesters are excluded; overlapping configured
+semesters remain visible. Timestamps are UTC RFC3339. No results returns
+`{"data":[]}`. Query parameters, including client time overrides, are rejected.
+
+This endpoint only reads the existing `semesters` table. It creates no calendar
+rows, availability, history, notifications or realtime events. There is no public
+variant or HTTP write endpoint; trusted calendar maintenance remains operator-only.
+The frontend can use the returned ID as `semester_id` when creating weekly rules;
+Scheduling still revalidates the chosen semester and generated occurrences in the
+write transaction. No migration or frontend change is required for this API.
