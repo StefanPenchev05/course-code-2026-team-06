@@ -1,6 +1,6 @@
 # Local SSO provider for the Tutti course demo
 
-Issue [#46](https://github.com/StefanPenchev05/course-code-2026-team-06/issues/46) provisions **Keycloak 26.8.2**, a pinned local development Identity Provider (IdP). Its synthetic accounts simulate institutional identities. We have no real Uni.lu IdP access and do not contact university IT for this demo. This setup cannot authenticate real university accounts, verify enrollment or prove course grades. An email suffix is not evidence of any of these.
+Issue [#46](https://github.com/StefanPenchev05/course-code-2026-team-06/issues/46) provisions **Keycloak 26.8.2-3**, a pinned local development Identity Provider (IdP). Its synthetic accounts simulate institutional identities. We have no real Uni.lu IdP access and do not contact university IT for this demo. This setup cannot authenticate real university accounts, verify enrollment or prove course grades. An email suffix is not evidence of any of these.
 
 The updated issue and course-demo instruction supersede the official-institution integration assumption **for the prototype only**. [D01/FR1/FR23](requirements-decisions.md) still record the earlier official Uni.lu target; their broader revision belongs to #70. This guide records the local contract without claiming university approval. Production/institutional integration would be separate future work. Existing password login remains implemented; #46 does not migrate it.
 
@@ -17,6 +17,7 @@ The updated issue and course-demo instruction supersede the official-institution
 
 | Item | Local value / behavior |
 | --- | --- |
+| Image | `quay.io/keycloak/keycloak:26.8.2-3` (26.8.2 JVM security rebuild) |
 | Compose extension | [`compose.sso.yaml`](../compose.sso.yaml), combined with the unchanged [`compose.yaml`](../compose.yaml) |
 | Provider / admin console | `http://localhost:8180` / `http://localhost:8180/admin/` |
 | Listener | Published `127.0.0.1:8180` only; no published management port |
@@ -25,9 +26,11 @@ The updated issue and course-demo instruction supersede the official-institution
 | Discovery | `http://localhost:8180/realms/tutti-demo/.well-known/openid-configuration` |
 | Authorization endpoint | `http://localhost:8180/realms/tutti-demo/protocol/openid-connect/auth` |
 | Token endpoint | `http://localhost:8180/realms/tutti-demo/protocol/openid-connect/token` |
+| User information endpoint | `http://localhost:8180/realms/tutti-demo/protocol/openid-connect/userinfo` (Bearer token required) |
+| Provider logout endpoint | `http://localhost:8180/realms/tutti-demo/protocol/openid-connect/logout` (does not revoke a Tutti Redis session) |
 | JWKS endpoint | `http://localhost:8180/realms/tutti-demo/protocol/openid-connect/certs` |
 | Client | `tutti-backend`, confidential OIDC, client-secret authentication |
-| Allowed flow | Authorization Code with mandatory S256 PKCE; no implicit flow, direct/password grants, service accounts, device or CIBA grants |
+| Allowed flow | Authorization Code with mandatory S256 PKCE; no implicit flow, direct/password grants, service accounts, device, CIBA, standard token exchange or JWT bearer grants |
 | Exact callback | `http://localhost:8080/api/v1/auth/oidc/callback` — implemented for Stage 2 protocol verification only |
 | Browser origin | Exactly `http://localhost:8080`; no wildcard origins or redirects |
 | OIDC scopes | Request `openid profile email`; no application-role mapping |
@@ -106,7 +109,9 @@ PY
 
 The snippet reads the simple unquoted file generated above; it is not a general dotenv parser. In PowerShell use the same Python here-string convention and substitute `py -3` for `python3` in the subprocess list, or export the three variables with `$env:NAME` and run `py -3 infra/keycloak/verify.py --live --admin`.
 
-The script checks the import file, exact callback/origin, confidential code flow, S256, disabled grants and absence of seeded credentials. Live checks validate issuer, endpoints, JWKS, a no-session code-flow preflight (`login_required`), and rejection of a disallowed callback, missing PKCE and implicit response. With `--admin`, it checks persisted client flags and the injected client secret and confirms the backend client's password grant is rejected. The built-in `admin-cli` master-realm password grant used only for maintenance is distinct from the disabled application password grant. Admin tokens remain in process memory and are never printed/saved.
+The script checks the import file, exact callback/origin, confidential code flow, S256, disabled grants and absence of seeded credentials. Live checks validate issuer, all five endpoint URLs, JWKS, scopes, RS256 and client-secret authentication capabilities, a no-session code-flow preflight (`login_required`), and rejection of a disallowed callback, missing/plain PKCE and implicit response. Userinfo must reject a request without a bearer token; authorization-code exchange without client credentials must fail, and logout must be reachable (it may return a confirmation page or reject missing parameters). This is not a logout/session-revocation test.
+
+With `--admin`, it checks persisted realm restrictions, client flags, exact allowlists, profile/email-only scopes and all explicitly disabled alternative grants. It compares the stored secret with the supplied environment value, then proves that secret authenticates at the token endpoint: an intentionally invalid synthetic code gets `invalid_grant`, while an intentionally wrong secret gets a 401 client-authentication rejection. No valid code or ID token is obtained. It also confirms password and service-account grants are rejected. The pinned image returns `400 unauthorized_client` for password and `401 unauthorized_client` for service accounts; an error response does not mean the grant succeeded. The built-in `admin-cli` master-realm password grant used only for maintenance is distinct from the disabled application password grant. Admin tokens remain in process memory and are never printed/saved.
 
 Use the console's **Clients → tutti-backend** to inspect settings manually. With the API running and OIDC enabled, the Stage 2 callback now verifies the code/ID token and returns safe development JSON. It creates no Tutti account or application session. Without OIDC enabled the route is absent.
 
@@ -129,7 +134,13 @@ docker compose --env-file .env.sso -p tutti-sso-demo -f compose.yaml -f compose.
 docker compose --env-file .env.sso -p tutti-sso-demo -f compose.yaml -f compose.sso.yaml up -d --wait keycloak
 ```
 
-Startup import **skips an existing realm**. Editing JSON or changing `.env.sso` will not overwrite an existing realm/client secret or bootstrap administrator. Update these deliberately through the admin console, or reset this disposable provider. After changing the secret, update any future Go configuration consistently. The live admin verifier detects a mismatch with the stored client secret.
+Startup import **skips an existing realm**. Editing JSON or changing `.env.sso` will not overwrite an existing realm/client secret or bootstrap administrator. Update these deliberately through the admin console, or reset this disposable provider. After changing the secret, update any future Go configuration consistently. The live admin verifier detects a mismatch with the stored client secret. The
+current import also explicitly sets `standard.token.exchange.enabled=false` and
+`oauth2.jwt.authorization.grant.enabled=false`. Older persisted realms will not
+receive those attributes just by restarting. Disable those capabilities deliberately
+through the client admin settings/API, preserving all other client fields, or use
+the isolated reset below **only for disposable demo data**; rerun the verifier.
+Do not change unrelated realms or use a whole-project volume reset.
 
 **Reset only the disposable Keycloak data** (deletes demo users, IdP sessions and keys; changes future subject identities):
 
@@ -151,6 +162,8 @@ This is HTTP-only, `start-dev`, with local H2 storage and no production availabi
 - **Realm/client edits ignored:** an existing volume retains the previous import; use the targeted reset only for disposable data.
 - **Issuer mismatch/unreachable Go container:** use the exact supported host layout; do not disable protocol validation or switch between localhost, 127.0.0.1 and Docker service names casually.
 - **No Tutti session after Keycloak login:** expected until Stage 3B. Stage 2 verifies only the provider identity; it does not establish Tutti authorization or demonstrate multi-client SSO.
+
+The pinned `26.8.2-3` rebuild follows the [Keycloak Java runtime advisory](https://www.keycloak.org/2026/11/java4shell-vulnerability-cve-2026-114938). The upstream `26.8.2` tag can move to rebuilt images; using the explicit rebuild tag avoids reusing a pre-fix cached image on another architecture. This verification also checks the running image's bundled Java is `21.0.13.1`. Future upgrades must recheck the image and runtime rather than inferring JVM fixes from the Keycloak application version alone.
 
 Implementation follows Keycloak's official [container guide](https://www.keycloak.org/server/containers), [startup import/environment placeholder guide](https://www.keycloak.org/server/importExport) and [hostname guide](https://www.keycloak.org/server/hostname). The version is pinned for reproducibility; review upstream releases before future upgrades and retest imports/flows.
 
@@ -186,3 +199,105 @@ The [persistent binding contract](identity.md#oidc-stage-3a-persistent-identity-
 Changing a synthetic user's email or display name does not break its mapping. Resetting/reimporting Keycloak can change the subject even if the username/email is identical. Such an identity is unknown until a separately approved trusted recovery workflow proves ownership; existing bindings are never overwritten automatically. The mapping's restrictive user FK and guarded rollback protect against silently forgetting associations. It stores no tokens or passwords.
 
 The current browser callback remains Stage 2's protocol-only development response. Stage 3B must resolve the successful verified identity through the reader capability and then implement separately authorized session establishment; it must not expose the provisioning writer or auto-register unknown users. Pending/rejected students stay restricted, active tutor and coordinator permissions come from Tutti's database, and suspended/closed users cannot resolve for login. No new environment variable, Keycloak role mapper or synthetic password is needed for this persistence stage.
+
+
+## Issue #46 re-verification and handoff — 2026-11-26
+
+### Task and existing implementation
+
+Started on `main` at `98009df` with a clean working tree. Reviewed root AGENTS.md,
+base/SSO Compose, environment/ignore rules, realm import, this guide, Identity's
+existing OIDC provider/configuration and related issues #46 / #65–#70. The optional
+provider, secret placeholders, health check, isolated H2 storage, exact callbacks,
+PKCE and most documentation already worked. This task adds no Go authentication,
+account linking, sessions, frontend changes or migrations; existing #65 stages
+remain as described in the Identity guide.
+
+### Changes made
+
+- `compose.sso.yaml`: pin the explicit `26.8.2-3` Java security rebuild; retain the
+  loopback binding, data volume, read-only import and health check.
+- `infra/keycloak/realm/tutti-demo-realm.json`: explicitly disable standard token
+  exchange and JWT bearer grants alongside the existing disabled flows.
+- `infra/keycloak/verify.py`: reuse the smoke checker and verify userinfo/logout,
+  discovery scopes/client authentication/RS256, plain-PKCE rejection, persisted
+  realm restrictions, minimal client scopes, all alternative-grant flags, actual
+  client-secret authentication and wrong-secret/service-account rejection.
+- `.env.example`: clarify the separate Keycloak and Go client-secret variable names.
+- This guide: complete the endpoint table, update/reimport guidance, evidence and
+  acceptance matrix. Formal D01 / FR1 / FR23 / UC01 revision remains #70.
+
+### Verification executed
+
+Used Docker on aarch64 with a newly named `tutti-sso46-*` project and random
+credentials in a mode-0600 temporary file outside Git. No existing `.env` was
+changed; Keycloak credentials came from the isolated test environment. The API and existing developer databases were
+not started, stopped or modified by this verification.
+
+| Check / command | Result |
+| --- | --- |
+| `docker compose -f compose.yaml -f compose.sso.yaml up -d keycloak` with private exported credentials/project name | Passed; running/healthy on `127.0.0.1:8180` |
+| Combined `config --quiet`; base config independently; compare resolved service definitions privately with `--profile workers` | Passed; PostgreSQL, Redis and worker definitions identical; only Keycloak added |
+| Every required credential empty in turn | Compose rejected each case; no interpolated config/secrets printed |
+| `python3 infra/keycloak/verify.py` and Python syntax check | Passed; no added dependencies |
+| `python3 infra/keycloak/verify.py --live --admin` | Passed before/after restart and after fresh import |
+| Discovery/JWKS | HTTP 200; exact issuer/endpoints, S256, RS256, identity scopes and confidential authentication advertised |
+| Provider endpoint checks | Userinfo rejects no-token request (401); logout reachable; no-client code exchange rejected; valid code-flow preflight returns `login_required` |
+| Security negative probes | Exact callback enforced; missing/plain PKCE and implicit flow rejected; password/service-account grants rejected; wrong client secret rejected |
+| Runtime secret substitution | Admin-retrieved value equals generated environment secret; correct secret reaches invalid-code validation (`invalid_grant`), wrong secret fails client authentication |
+| Persisted configuration | Realm/client enabled, registration/reset disabled, profile/email-only scopes, exact callback/origin, S256 and all disabled grant attributes confirmed |
+| `docker exec <owned-keycloak-container> java -version` | OpenJDK `21.0.13.1`, matching the selected rebuild |
+| `restart keycloak`, readiness and verifier again | Passed; realm/client UUIDs and client secret preserved |
+| `stop keycloak` and discovery probe | Container stopped (SIGTERM exit 143); discovery no longer reachable |
+| Remove only label-verified disposable Keycloak data volume, then start again | Fresh import passed every live/admin check and generated a new persisted client UUID |
+| Existing Tutti PostgreSQL/Redis status | Both remained running and healthy; other developer containers preserved |
+| Ignore/credential/log checks, local links and `git diff --check` | Passed; generated credentials absent from tracked files and container logs |
+
+The first new negative probes assumed different OAuth error statuses. The selected
+image returns `401 unauthorized_client` for service accounts and can use
+`unauthorized_client` for a wrong secret. Assertions were corrected to verify
+actual rejection at the right protocol boundary; successful token issuance is
+never accepted. No provider restrictions were relaxed to make a probe pass.
+
+### Acceptance matrix
+
+| Issue #46 criterion | Evidence / status |
+| --- | --- |
+| Existing Compose reviewed/reused and starts with documented command | Passed; optional overlay retained |
+| PostgreSQL/Redis/worker preserved | Base/combined configuration equality; existing services healthy |
+| Reproducible `tutti-demo` import | Fresh-volume startup and repeated live/admin verification passed |
+| Confidential `tutti-backend`, client authentication, code flow and S256 | Persisted configuration and preflight/negative probes passed |
+| Unnecessary grants disabled | Explicit imported/persisted flags; implicit/password/service-account negative probes passed |
+| Exact callback and restricted origin | Allowlist assertions and bad-redirect rejection passed |
+| Credentials outside Git; missing values fail safely | Temporary random values, ignored local-file guidance and per-variable Compose rejection passed |
+| Runtime secret substitution | Persisted equality and positive/negative client-authentication probes passed |
+| Discovery with exact issuer | HTTP 200 and all five advertised endpoint comparisons passed |
+| Synthetic user provisioning | Existing manual console instructions use reserved `.example` identities and locally supplied passwords |
+| Startup, readiness, restart, troubleshooting and isolated cleanup | Documented and runtime lifecycle checks passed |
+| #65 integration contract | Table above complete; Go consumes the same secret as `OIDC_CLIENT_SECRET` |
+| Simulated-provider and authorization boundaries | Explicit throughout; no institutional approval/enrollment/role claims |
+| Go authentication / multi-client SSO / production deployment | Outside this task; not newly implemented or verified |
+| Repository/issue operations | Changes uncommitted on `main`; no push, merge or issue closure |
+
+### Limits and next agent
+
+No interactive synthetic-user login, successful code exchange/ID-token validation,
+Go callback, Tutti session creation, userinfo claim contents, actual IdP logout or
+two-client browser SSO was tested in this infrastructure run. Device/CIBA/token
+exchange/JWT bearer restrictions are verified as persisted configuration, not
+through successful signed-token flow tests. Existing prior Stage 2 evidence above
+is separate from this run. Go/unit/race/build and PostgreSQL migration suites were
+not rerun because no backend code, base Compose, application database or migration
+changed; live provider configuration checks are the relevant verification here.
+No official Uni.lu login, enrollment verification, production readiness or formal
+SSO-only requirements migration is claimed.
+
+For #65, use the exact issuer/callback/scopes in the table and supply the same
+client secret privately to Go. Keep issuer verification enabled and resolve the
+browser/container hostname contract before containerizing the API. Continue
+existing Stage 3A binding into the separately scoped Stage 3B workflow without
+email-only linking or automatic roles. #66–#70 retain their linking, legacy-login,
+UI, threat-model and requirements responsibilities. Multi-client SSO remains a
+separate demonstration. Inspect this guide, `verify.py` and `docs/identity.md`
+first. The verification project, its dedicated volume/network and temporary
+credentials are removed after testing; no demo provider is left running.

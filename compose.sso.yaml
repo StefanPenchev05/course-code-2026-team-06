@@ -1,7 +1,7 @@
 # Local course demo only. Requires compose.yaml; never use start-dev in production.
 services:
   keycloak:
-    image: quay.io/keycloak/keycloak:26.8.2
+    image: quay.io/keycloak/keycloak:26.8.2-3
     command: ["start-dev", "--import-realm"]
     restart: "no"
     environment:
