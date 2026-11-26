@@ -11,7 +11,8 @@
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:a11y": "playwright test accessibility keyboard"
   },
   "dependencies": {
     "react": "^19.2.0",
@@ -19,6 +20,7 @@
     "react-router": "^7.9.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.65.0",
     "@testing-library/jest-dom": "^6.6.0",

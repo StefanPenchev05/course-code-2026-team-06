@@ -90,7 +90,7 @@ export function SessionFeedback({ sessionId, subjectName, viewerRole }: SessionF
     content = (
       <>
         <p className="muted">You haven’t rated this session yet.</p>
-        <Button variant="secondary" onClick={() => setWriting(true)} aria-label={`Rate the ${subjectName} session`}>
+        <Button variant="secondary" onClick={() => setWriting(true)} aria-label={`Rate this session: ${subjectName}`}>
           Rate this session
         </Button>
       </>

@@ -75,7 +75,7 @@ describe('One tutor', () => {
 
     const confirmed = await scheduleEntry('Algorithms');
     expect(within(confirmed).getByText('Confirmed')).toBeInTheDocument();
-    expect(within(confirmed).getByRole('button', { name: /^Cancel the Algorithms session/ })).toBeInTheDocument();
+    expect(within(confirmed).getByRole('button', { name: /^Cancel session: Algorithms/ })).toBeInTheDocument();
     const completed = await scheduleEntry('Databases');
     expect(within(completed).getByText('Completed')).toBeInTheDocument();
     expect(within(completed).queryByRole('button')).not.toBeInTheDocument();
@@ -138,7 +138,7 @@ describe('One tutor', () => {
     const user = userEvent.setup();
 
     const entry = await scheduleEntry('Algorithms');
-    await user.click(within(entry).getByRole('button', { name: /^Cancel the Algorithms session/ }));
+    await user.click(within(entry).getByRole('button', { name: /^Cancel session: Algorithms/ }));
     expect(within(entry).getByText('Cancel this session for policy reasons?')).toBeInTheDocument();
 
     await user.click(within(entry).getByRole('button', { name: 'Cancel the session' }));
@@ -168,7 +168,7 @@ describe('One tutor', () => {
     const user = userEvent.setup();
 
     const entry = await scheduleEntry('Algorithms');
-    await user.click(within(entry).getByRole('button', { name: /^Cancel the Algorithms session/ }));
+    await user.click(within(entry).getByRole('button', { name: /^Cancel session: Algorithms/ }));
     await user.type(within(entry).getByLabelText('Reason for cancelling'), 'Policy breach.');
     await user.click(within(entry).getByRole('button', { name: 'Cancel the session' }));
 

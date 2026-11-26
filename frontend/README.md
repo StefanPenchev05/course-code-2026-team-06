@@ -46,6 +46,7 @@ npm run lint       # code-quality checks (ESLint)
 npm run typecheck
 npm run build
 npm run test:e2e   # browser journeys against the REAL backend; setup in tests/e2e/README.md
+npm run test:a11y  # only the accessibility, mobile and keyboard journeys (#59)
 ```
 
 ### A test account

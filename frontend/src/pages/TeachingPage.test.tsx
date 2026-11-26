@@ -156,7 +156,7 @@ describe('TeachingPage', () => {
     expect(within(upcomingCard).queryByRole('button', { name: /completed/i })).not.toBeInTheDocument();
     expect(within(upcomingCard).getByText(/You can mark it as completed after it ends/)).toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: /^Mark Algorithms .* as completed/ }));
+    await user.click(screen.getByRole('button', { name: /^Mark as completed: Algorithms/ }));
     await user.click(screen.getByRole('button', { name: 'Yes, it took place' }));
 
     expect(await screen.findByText('Marked as completed. The student can now rate the session.')).toBeInTheDocument();

@@ -111,4 +111,31 @@ free time" without depending on screens that don't exist yet.
   session can end during a run. Component tests cover that path; the backend's own integration
   tests cover it with a test clock.
 
+## Accessibility and mobile checks (issue #59)
+
+Run them alone with `npm run test:a11y` (same setup as above).
+
+- `accessibility.spec.ts` creates real data (a tutor with free time, a booking, a problem report, a
+  pending tutor application and a pending registration), then opens **every screen** as the right
+  user: logged out, student, tutor and coordinator, including detail pages. Each screen is checked at
+  **1280px and 375px (phone)** with [axe](https://github.com/dequelabs/axe-core) against WCAG 2.1 A
+  and AA, for sideways scrolling, and for exactly one `<h1>`. The report lists every problem at once
+  (it is attached to the test result) and names any screen that had no data to open.
+- `keyboard.spec.ts` logs in and books a session using **only Tab, typing and Enter**: the skip
+  link comes first and is visible, every focused element shows a visible focus outline, focus moves
+  into the booking form and then to the confirmation, and booking takes **three steps after the
+  tutor profile opens** (NFR6).
+
+What automated checks can't prove: axe finds roughly a third to a half of accessibility problems.
+A short manual pass with a real screen reader (VoiceOver on macOS/iOS, NVDA on Windows) is still
+worth doing before release.
+
+### Tested browsers
+
+| Browser engine | Sizes | Status |
+|---|---|---|
+| Chromium (Chrome, Edge) | 1280px desktop, 375px phone (emulated) | Automated in every run |
+| Firefox | | Not automated (needs `npx playwright install firefox`) |
+| WebKit (Safari, iPhone) | | Not automated (needs `npx playwright install webkit`) |
+
 Failed runs keep a screenshot and trace in `test-results/` (`npx playwright show-trace <file>`).

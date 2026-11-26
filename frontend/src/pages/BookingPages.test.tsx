@@ -165,7 +165,7 @@ describe('MySessionsPage', () => {
     renderAt('/sessions');
     const user = userEvent.setup();
 
-    await user.click(await screen.findByRole('button', { name: /^Cancel Algorithms/ }));
+    await user.click(await screen.findByRole('button', { name: /^Cancel session: Algorithms/ }));
     expect(screen.getByText('This is a late cancellation')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Cancel the session' }));
     expect(screen.getByText('Give a reason; the other person sees it.')).toBeInTheDocument();

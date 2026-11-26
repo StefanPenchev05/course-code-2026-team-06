@@ -84,7 +84,7 @@ describe('Rating a completed session', () => {
 
     const algorithms = await card();
     expect(await within(algorithms).findByText('You haven’t rated this session yet.')).toBeInTheDocument();
-    await user.click(within(algorithms).getByRole('button', { name: 'Rate the Algorithms session' }));
+    await user.click(within(algorithms).getByRole('button', { name: 'Rate this session: Algorithms' }));
 
     // Sending without a rating is stopped in the browser and focus moves to the rating.
     await user.click(within(algorithms).getByRole('button', { name: 'Send feedback' }));
@@ -153,7 +153,7 @@ describe('Rating a completed session', () => {
     const user = userEvent.setup();
 
     const algorithms = await card();
-    await user.click(await within(algorithms).findByRole('button', { name: 'Rate the Algorithms session' }));
+    await user.click(await within(algorithms).findByRole('button', { name: 'Rate this session: Algorithms' }));
     await user.click(within(algorithms).getByRole('radio', { name: '5 – Excellent' }));
     await user.click(within(algorithms).getByRole('button', { name: 'Send feedback' }));
 
@@ -171,7 +171,7 @@ describe('Rating a completed session', () => {
     const user = userEvent.setup();
 
     const algorithms = await card();
-    await user.click(await within(algorithms).findByRole('button', { name: 'Rate the Algorithms session' }));
+    await user.click(await within(algorithms).findByRole('button', { name: 'Rate this session: Algorithms' }));
     await user.click(within(algorithms).getByRole('radio', { name: '3 – Good' }));
     await user.click(within(algorithms).getByRole('button', { name: 'Send feedback' }));
 
@@ -187,7 +187,7 @@ describe('Rating a completed session', () => {
     const user = userEvent.setup();
 
     const algorithms = await card();
-    await user.click(await within(algorithms).findByRole('button', { name: 'Rate the Algorithms session' }));
+    await user.click(await within(algorithms).findByRole('button', { name: 'Rate this session: Algorithms' }));
     await user.click(within(algorithms).getByRole('radio', { name: '4 – Very good' }));
     await user.click(within(algorithms).getByLabelText('Comment (optional)'));
     await user.paste('a'.repeat(2001));

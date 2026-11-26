@@ -146,7 +146,7 @@ export function TutorSchedule({ tutorId, now }: TutorScheduleProps) {
                               setNotice(null);
                               setCancelling(entry.id);
                             }}
-                            aria-label={`Cancel the ${entry.subject_name ?? ''} session on ${group.label}, ${timeRange(entry, timeZone)}`}
+                            aria-label={`Cancel session: ${entry.subject_name ?? ''} on ${group.label}, ${timeRange(entry, timeZone)}`}
                           >
                             Cancel session
                           </Button>

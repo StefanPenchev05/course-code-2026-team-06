@@ -77,7 +77,7 @@ export function SessionCard({ session, onChanged, timeZone = browserTimeZone() }
             }}
           />
         ) : (
-          <Button variant="link" onClick={() => setCancelling(true)} aria-label={`Cancel ${session.subject_name} on ${when.format(new Date(session.starts_at))}`}>
+          <Button variant="link" onClick={() => setCancelling(true)} aria-label={`Cancel session: ${session.subject_name} on ${when.format(new Date(session.starts_at))}`}>
             Cancel session
           </Button>
         ))}

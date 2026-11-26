@@ -99,7 +99,7 @@ export function TutorSessionCard({ session, onChanged, timeZone = browserTimeZon
           {hasEnded(session.ends_at, now) ? (
             <ConfirmAction
               label="Mark as completed"
-              ariaLabel={`Mark ${label} as completed`}
+              ariaLabel={`Mark as completed: ${label}`}
               question="Did this session take place?"
               confirmLabel="Yes, it took place"
               onConfirm={complete}
