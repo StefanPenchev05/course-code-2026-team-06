@@ -82,20 +82,27 @@ func TestOIDCKeycloakBrowser(t *testing.T) {
 	}
 	password := oauth2.GenerateVerifier()
 	type browserUser struct {
-		Scenario   string   `json:"scenario"`
-		Username   string   `json:"username"`
-		ID         string   `json:"id"`
-		Status     int      `json:"status"`
-		Verified   bool     `json:"verified"`
-		Roles      []string `json:"roles"`
-		Semesters  int      `json:"semesters"`
-		OldSession string   `json:"oldSession,omitempty"`
-Faculty string `json:"faculty,omitempty"`
+		Scenario            string   `json:"scenario"`
+		Username            string   `json:"username"`
+		ID                  string   `json:"id"`
+		Status              int      `json:"status"`
+		Verified            bool     `json:"verified"`
+		Roles               []string `json:"roles"`
+		Semesters           int      `json:"semesters"`
+		OldSession          string   `json:"oldSession,omitempty"`
+		Faculty             string   `json:"faculty,omitempty"`
+		ForeignVerification string   `json:"foreignVerification,omitempty"`
+		SuspendAfterLogin   bool     `json:"suspendAfterLogin,omitempty"`
+	}
+	var foreignVerification string
+	if err := f.db.QueryRow(ctx, "SELECT id::text FROM student_verifications WHERE student_id=$1", fixture(bookingOtherStudent)).Scan(&foreignVerification); err != nil {
+		t.Fatal("missing out-of-faculty verification fixture")
 	}
 	users := []browserUser{
 		{Scenario: "approved tutor rotation and logout", ID: fixture(bookingTutor), Status: 200, Verified: true, Roles: []string{"student", "tutor"}, Semesters: 200, OldSession: f.cookie[bookingTutor].Value},
 		{Scenario: "pending student remains restricted", ID: fixture(bookingPending), Status: 200, Roles: []string{"student"}, Semesters: 403},
-		{Scenario: "coordinator retains database faculty authority", ID: fixture(bookingCoordinator), Status: 200, Roles: []string{"coordinator"}, Semesters: 403},
+		{Scenario: "coordinator retains database faculty authority", ID: fixture(bookingCoordinator), Faculty: fixture(401), ForeignVerification: foreignVerification, Status: 200, Roles: []string{"coordinator"}, Semesters: 403},
+		{Scenario: "suspension blocks an existing SSO session", ID: fixture(bookingStudent), Status: 200, Verified: true, Roles: []string{"student"}, Semesters: 403, SuspendAfterLogin: true},
 		{Scenario: "unknown identity rejected", Status: 401},
 		{Scenario: "suspended tutor rejected", ID: fixture(bookingOtherTutor), Status: 403},
 	}
@@ -116,9 +123,9 @@ Faculty string `json:"faculty,omitempty"`
 			}
 		}
 	}
-	f.exec(t,"INSERT INTO student_verifications(student_id,faculty_id) VALUES($1,$2)",fixture(bookingPending),fixture(401))
+	f.exec(t, "INSERT INTO student_verifications(student_id,faculty_id) VALUES($1,$2)", fixture(bookingPending), fixture(401))
 	f.exec(t, "UPDATE users SET is_suspended=true,suspended_at=now(),suspended_by_coordinator_id=$2,suspension_reason='OIDC fixture' WHERE id=$1", fixture(bookingOtherTutor), fixture(bookingCoordinator))
-	for key, value := range map[string]string{"DATABASE_URL": os.Getenv("TUTTI_TEST_DATABASE_URL"), "REDIS_URL": os.Getenv("TUTTI_TEST_REDIS_URL"), "HTTP_ADDR": address, "PUBLIC_ORIGIN": origin, "UNIVERSITY_EMAIL_DOMAINS": "uni.example", "OIDC_ENABLED": "true", "OIDC_ISSUER_URL": issuer, "OIDC_CLIENT_ID": "tutti-backend", "OIDC_CLIENT_SECRET": os.Getenv("TUTTI_OIDC_CLIENT_SECRET"), "OIDC_REDIRECT_URL": origin + "/api/v1/auth/oidc/callback", "OIDC_POST_LOGIN_PATH": "/api/v1/auth/me", "OIDC_HTTP_TIMEOUT": "3s", "OIDC_TRANSACTION_TTL": "5m", "SESSION_TTL": "1h", "ARGON2_MEMORY_KIB": "19456", "ARGON2_ITERATIONS": "2", "ARGON2_THREADS": "1", "REALTIME_NAMESPACE": "oidc-browser-" + oauth2.GenerateVerifier()} {
+	for key, value := range map[string]string{"DATABASE_URL": os.Getenv("TUTTI_TEST_DATABASE_URL"), "REDIS_URL": os.Getenv("TUTTI_TEST_REDIS_URL"), "HTTP_ADDR": address, "PUBLIC_ORIGIN": origin, "UNIVERSITY_EMAIL_DOMAINS": "uni.example", "OIDC_ENABLED": "true", "OIDC_ISSUER_URL": issuer, "OIDC_CLIENT_ID": "tutti-backend", "OIDC_CLIENT_SECRET": os.Getenv("TUTTI_OIDC_CLIENT_SECRET"), "OIDC_REDIRECT_URL": origin + "/api/v1/auth/oidc/callback", "OIDC_POST_LOGIN_PATH": "/api/v1/auth/me", "OIDC_HTTP_TIMEOUT": "3s", "OIDC_TRANSACTION_TTL": "5m", "SESSION_TTL": "1h", "ARGON2_MEMORY_KIB": "19456", "ARGON2_ITERATIONS": "2", "ARGON2_THREADS": "1", "REALTIME_NAMESPACE": "oidc-browser-" + strings.ToLower(oauth2.GenerateVerifier()[:12])} {
 		t.Setenv(key, value)
 	}
 	runCtx, cancel := context.WithCancel(ctx)
@@ -151,7 +158,7 @@ Faculty string `json:"faculty,omitempty"`
 	if !ready {
 		t.Fatal("OIDC-enabled production bootstrap did not become ready")
 	}
-	fixtureJSON, err := json.Marshal(map[string]any{"origin": origin, "password": password, "users": users})
+	fixtureJSON, err := json.Marshal(map[string]any{"origin": origin, "password": password, "users": users, "coordinatorSession": f.cookie[bookingCoordinator].Value})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,5 +169,5 @@ Faculty string `json:"faculty,omitempty"`
 		t.Fatalf("Keycloak browser smoke failed (sanitized output): %s", output)
 	}
 	t.Log(strings.TrimSpace(string(output)))
-	f.count(t, 4, "SELECT count(*) FROM oidc_identities")
+	f.count(t, 5, "SELECT count(*) FROM oidc_identities")
 }

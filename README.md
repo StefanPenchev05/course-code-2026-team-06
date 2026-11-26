@@ -88,4 +88,4 @@ See the [current requirements](docs/1.3-1.4_user-story_mapping--requirement_anal
 
 ## Local SSO provider demo
 
-See the [Keycloak course-demo guide](docs/sso-demo.md) for optional local OIDC infrastructure, synthetic identities, startup and verification. This is not official Uni.lu authentication; Issue #65 now provides optional [Go OIDC login initiation](docs/identity.md#oidc-stage-1-login-initiation-issue-65); Stage 2 now verifies callbacks and ID tokens; account binding and authenticated-session creation remain Stage 3.
+See the [Keycloak course-demo guide](docs/sso-demo.md) for optional local OIDC infrastructure, synthetic identities, startup and verification. This is not official Uni.lu authentication; Issue #65 now provides optional [Go OIDC login initiation](docs/identity.md#oidc-stage-1-login-initiation-issue-65); Stage 2 now verifies callbacks and ID tokens; prelinked-account resolution and opaque Redis-backed sessions are now integrated. Account migration and frontend SSO UX remain #66/#68; legacy password retirement remains #67.

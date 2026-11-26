@@ -30,7 +30,11 @@ func TestOIDCSessionRotationAndLimits(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	var owned []string
-	defer func() {cleanup:=redis.NewClient(options);defer cleanup.Close();cleanup.Del(context.Background(),owned...)}()
+	defer func() {
+		cleanup := redis.NewClient(options)
+		defer cleanup.Close()
+		cleanup.Del(context.Background(), owned...)
+	}()
 	session := func() string {
 		key := domain.OIDCHash(oauth2.GenerateVerifier())
 		owned = append(owned, "tutti:identity:session:"+key)
@@ -38,7 +42,7 @@ func TestOIDCSessionRotationAndLimits(t *testing.T) {
 	}
 	store := sessionredis.New(cache)
 	old, fresh, collision := session(), session(), session()
-	if err := store.Create(ctx, old, "synthetic-user", time.Hour); err != nil {
+	if err := store.Create(ctx, old, "synthetic-user", time.Minute); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Rotate(ctx, fresh, "synthetic-user", old, time.Hour); err != nil {
@@ -51,7 +55,7 @@ func TestOIDCSessionRotationAndLimits(t *testing.T) {
 		t.Fatal("new session missing")
 	}
 	ttl, err := cache.PTTL(ctx, "tutti:identity:session:"+fresh).Result()
-	if err != nil || ttl <= 0 || ttl > time.Hour {
+	if err != nil || ttl < 59*time.Minute || ttl > time.Hour {
 		t.Fatal("invalid session expiration")
 	}
 	if err := store.Create(ctx, collision, "other-user", time.Hour); err != nil {

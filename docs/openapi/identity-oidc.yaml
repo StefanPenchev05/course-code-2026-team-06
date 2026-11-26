@@ -1,0 +1,170 @@
+openapi: 3.0.3
+info:
+  title: Tutti OIDC authentication and local logout
+  version: 1.0.0
+  description: >-
+    Scoped contract for issue 65, not the complete Identity API. Local Keycloak
+    is a simulated provider. No email/claim-based enrollment or role grants.
+    OIDC routes exist only when OIDC_ENABLED=true. Legacy authentication stays
+    available until issue 67; failed OIDC never invokes it as a fallback.
+paths:
+  /api/v1/auth/oidc/login:
+    get:
+      operationId: initiateOIDCLogin
+      summary: Start browser-bound Authorization Code authentication with PKCE S256
+      description: >-
+        No query parameters or caller return URLs accepted. A foreign explicit
+        Origin or cross-site initiation is rejected. Uses shared Redis fixed-window
+        limits of 10 attempts per TCP peer and 120 globally per minute; proxy
+        headers are not trusted. State, nonce and PKCE verifier are kept server-side
+        with a bounded TTL. The verifier and client secret are never returned.
+      security: []
+      responses:
+        '302':
+          description: Trusted discovered authorization endpoint and temporary binding cookie
+          headers:
+            Location:
+              schema: {type: string, format: uri}
+              description: Authorization URL with fixed client/callback, code flow, S256, state and nonce
+            Set-Cookie:
+              schema: {type: string}
+              description: Host-only HttpOnly SameSite=Lax binding cookie, Secure for HTTPS; TTL 1–10 minutes
+            Cache-Control:
+              schema: {type: string, enum: [no-store]}
+            Referrer-Policy:
+              schema: {type: string, enum: [no-referrer]}
+        '400': {$ref: '#/components/responses/Malformed'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '429':
+          description: Initiation budget exceeded; no new transaction/cookie
+          headers:
+            Retry-After:
+              schema: {type: string, enum: ['60']}
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/v1/auth/oidc/callback:
+    get:
+      operationId: completeOIDCAuthentication
+      summary: Verify the provider response and establish a rotated Tutti session
+      description: >-
+        Requires one browser-binding cookie and one state plus exactly one code
+        or provider error. Duplicate, unknown, oversized or malformed parameters
+        are rejected. Optional iss must exactly match the configured issuer.
+        Consumes a matching Redis transaction atomically before code exchange.
+        Resolves only prelinked issuer/subject identities, checks current Tutti
+        eligibility and atomically rotates the existing opaque Redis session.
+        No automatic linking, registration, email matching or role escalation.
+        Consumed temporary cookies are cleared even after later failure; unmatched
+        callbacks cannot consume or clear a different valid attempt. All responses
+        use no-store and no-referrer; provider bodies, codes and tokens are not echoed.
+      security:
+        - httpsBinding: []
+        - loopbackBinding: []
+      parameters:
+        - name: state
+          in: query
+          required: true
+          schema: {type: string, minLength: 43, maxLength: 43}
+        - name: code
+          in: query
+          description: Required instead of error for successful provider authentication
+          schema: {type: string, minLength: 1, maxLength: 4096}
+        - name: error
+          in: query
+          description: Provider denial instead of code; no application session created
+          schema: {type: string, minLength: 1, maxLength: 128}
+        - name: iss
+          in: query
+          schema: {type: string, format: uri, maxLength: 4096}
+        - name: session_state
+          in: query
+          schema: {type: string, maxLength: 4096}
+        - name: error_description
+          in: query
+          description: Accepted but never echoed or logged
+          schema: {type: string, maxLength: 4096}
+        - name: error_uri
+          in: query
+          description: Accepted but never followed, echoed or logged
+          schema: {type: string, maxLength: 4096}
+      responses:
+        '303':
+          description: Authenticated; fixed same-origin OIDC_POST_LOGIN_PATH (default /)
+          headers:
+            Location:
+              schema: {type: string}
+              description: Configured path only; never derived from caller/provider input
+            Set-Cookie:
+              schema: {type: string}
+              description: >-
+                Separate headers set tutti_session (loopback HTTP) or
+                __Host-tutti_session (HTTPS) and delete the temporary binding cookie.
+                HttpOnly, SameSite=Lax, path /, no Domain, Secure on HTTPS.
+                Max-Age is fixed SESSION_TTL; no provider tokens in browser storage.
+            Cache-Control:
+              schema: {type: string, enum: [no-store]}
+            Referrer-Policy:
+              schema: {type: string, enum: [no-referrer]}
+        '400': {$ref: '#/components/responses/Malformed'}
+        '401':
+          description: Provider/token rejection, unknown or conflicting identity; generic authentication failure
+          content:
+            application/json:
+              schema: {$ref: '#/components/schemas/Error'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {$ref: '#/components/responses/Unavailable'}
+  /api/v1/auth/logout:
+    post:
+      operationId: logoutLocalTuttiSession
+      summary: Revoke the existing Tutti session and clear its cookie
+      description: >-
+        Existing contract, unchanged by issue 65. Requires a current eligible
+        authenticated session and exact PUBLIC_ORIGIN Origin header. 204 follows
+        Redis revocation; no provider logout, provider tokens or redirect is used.
+        The Keycloak browser session can remain active. No fallback recreates a
+        local session when logout or the provider is unavailable.
+      security:
+        - httpsSession: []
+        - loopbackSession: []
+      parameters:
+        - name: Origin
+          in: header
+          required: true
+          schema: {type: string, format: uri}
+          description: Must exactly equal configured PUBLIC_ORIGIN
+      responses:
+        '204': {description: Local session revoked and application cookie cleared}
+        '401': {description: Missing/invalid/expired session}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '500': {description: Infrastructure failure; no successful logout or replacement session claimed}
+components:
+  securitySchemes:
+    httpsBinding: {type: apiKey, in: cookie, name: __Host-tutti_oidc_tx}
+    loopbackBinding: {type: apiKey, in: cookie, name: tutti_oidc_tx}
+    httpsSession: {type: apiKey, in: cookie, name: __Host-tutti_session}
+    loopbackSession: {type: apiKey, in: cookie, name: tutti_session}
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error: {type: string}
+  responses:
+    Malformed:
+      description: Malformed/unsupported input or missing, expired, replayed or mismatched correlation
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Forbidden:
+      description: Disallowed initiation or ineligible Tutti account (including suspended/closed/roleless)
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}
+    Unavailable:
+      description: Provider, Redis or PostgreSQL failure; no successful session or redirect
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Error'}

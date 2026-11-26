@@ -111,9 +111,18 @@ python3 backend/tests/integration/test_schema.py
 
 The Identity integration runner starts isolated PostgreSQL and Redis containers, applies all existing migrations, and tests the HTTP routes and persistence. The plain Go test command runs the unit tests and skips the service-backed test unless its test connection variables are present.
 
+## Current OIDC authentication contract (#65)
+
+When `OIDC_ENABLED=true`, login/callback now establish the existing opaque Redis
+session **only for an already linked eligible account**. [Stage 3B below](#oidc-stage-3b-authenticated-tutti-sessions)
+is the current integration contract; Stage 1/2/3A sections describe its reusable
+components and earlier milestones. This remains simulated development OIDC with
+Keycloak, not official university authentication. Formal requirement changes
+remain #70; legacy password retirement remains #67.
+
 ## OIDC Stage 1: login initiation (Issue #65)
 
-The optional `GET /api/v1/auth/oidc/login` endpoint now initiates authentication against the [local Keycloak demo](sso-demo.md). **Stage 1 initiates the flow; [Stage 2 below](#oidc-stage-2-callback-and-verified-provider-identity) now handles the callback, exchange and ID-token verification.** Stage 3A adds the internal persistent binding described below; callback account resolution, automatic account creation and application-session creation remain unimplemented. Existing password routes, activation, verification, faculty checks and Redis application sessions remain unchanged. Synthetic Keycloak identity is never evidence of enrollment or a source of Tutti privileges.
+The optional `GET /api/v1/auth/oidc/login` endpoint now initiates authentication against the [local Keycloak demo](sso-demo.md). **Stage 1 initiates the flow; [Stage 2 below](#oidc-stage-2-callback-and-verified-provider-identity) now handles the callback, exchange and ID-token verification.** Stage 3A adds the internal persistent binding described below; Stage 3B now integrates account resolution and application-session creation for prelinked accounts. Automatic account creation remains unsupported. Existing password routes, activation, verification, faculty checks and Redis application sessions remain unchanged. Synthetic Keycloak identity is never evidence of enrollment or a source of Tutti privileges.
 
 Start the Keycloak provider as documented, load the existing API/database/Redis environment, then export the following into the **Go API shell**:
 
@@ -124,6 +133,8 @@ export OIDC_ISSUER_URL=http://localhost:8180/realms/tutti-demo
 export OIDC_CLIENT_ID=tutti-backend
 export OIDC_REDIRECT_URL=http://localhost:8080/api/v1/auth/oidc/callback
 export OIDC_TRANSACTION_TTL=5m
+export OIDC_HTTP_TIMEOUT=3s
+export OIDC_POST_LOGIN_PATH=/
 # After privately loading your local Keycloak secret into this shell:
 export OIDC_CLIENT_SECRET="$TUTTI_OIDC_CLIENT_SECRET"
 (cd backend && go run ./cmd/api)
@@ -133,7 +144,7 @@ PowerShell uses `$env:OIDC_ENABLED = 'true'` and the corresponding `$env:NAME = 
 
 `OIDC_ENABLED` defaults to false, leaving the new route unregistered (404). With it enabled, issuer/client/callback/client-secret configuration is required. TTL defaults to five minutes and must be whole seconds between one and ten minutes. Invalid settings fail startup. The callback must exactly equal `PUBLIC_ORIGIN + /api/v1/auth/oidc/callback`; no caller-controlled return URL is accepted. HTTP is permitted only for literal loopback/localhost development URLs; an HTTPS app requires an HTTPS issuer. Keep browser, host Go process and issuer on the same hostname contract from the demo guide. Normal bridged Go containers cannot use host `localhost` unchanged.
 
-The provider adapter uses `coreos/go-oidc` discovery with exact issuer checking, rejects discovery redirects, and requires advertised Authorization Code and S256 support. The discovered authorization endpoint must be a query-free URL on the configured issuer's origin, an intentional restriction compatible with this Keycloak deployment. It validates discovery at startup and refreshes it on each initiation using a three-second HTTP timeout. An unavailable/invalid provider prevents initiation; no issuer-check bypass or fallback to an untrusted endpoint is used. A failure of Redis also returns generic `503` without a new cookie or redirect. Enabling OIDC makes successful discovery a startup dependency; disabling it preserves legacy startup behavior.
+The provider adapter uses `coreos/go-oidc` discovery with exact issuer checking, rejects discovery redirects, and requires advertised Authorization Code and S256 support. The discovered authorization endpoint must be a query-free URL on the configured issuer's origin, an intentional restriction compatible with this Keycloak deployment. It validates discovery at startup and refreshes it on each initiation using `OIDC_HTTP_TIMEOUT` (default three seconds, validated whole seconds from 1–10). An unavailable/invalid provider prevents initiation; no issuer-check bypass or fallback to an untrusted endpoint is used. A failure of Redis also returns generic `503` without a new cookie or redirect. Enabling OIDC makes successful discovery a startup dependency; disabling it preserves legacy startup behavior.
 
 On successful initiation the endpoint returns `302` to the discovered authorization endpoint, containing `client_id`, fixed `redirect_uri`, `response_type=code`, `scope=openid profile email`, random `state`, random `nonce`, `code_challenge` and `code_challenge_method=S256`. It never returns a PKCE verifier or client secret. `golang.org/x/oauth2` implements PKCE generation/challenge and authorization URL encoding. Library versions are pinned to versions compatible with the existing Go 1.24 module; no toolchain upgrade is needed. Stage 2 adds ID-token verification using the already installed OIDC library.
 
@@ -181,25 +192,21 @@ A valid token response must contain a nonempty access token, explicit Bearer tok
 - JOSE `typ`, when supplied, must be `JWT`; Keycloak's payload `typ`, when supplied, must be `ID`. Access-token types are rejected. OIDC does not require these optional type fields, so their absence alone does not fail a valid ID token. The `id_token` response field, signature, nonce and other checks remain mandatory.
 - An optional `at_hash` must match the returned access token.
 
-Provider-denied or invalid authentication returns generic 401; malformed/unmatched correlation returns 400; Redis/discovery/token-transport failure returns generic 503. No provider body, raw error, token, subject, code, state, nonce, verifier or secret is included in response/log messages. Responses use no-store and no-referrer and never redirect to an error-supplied URL. The protocol necessarily brings code/state in the callback URL: this JSON development response does not erase browser history. Configure proxies/access logs to redact query strings and response cookies; Stage 3 should finish with a fixed safe post-login redirect. Nothing is written to localStorage/sessionStorage.
+Provider-denied or invalid authentication returns generic 401; malformed/unmatched correlation returns 400; Redis/discovery/token-transport failure returns generic 503. No provider body, raw error, token, subject, code, state, nonce, verifier or secret is included in response/log messages. Responses use no-store and no-referrer and never redirect to an error-supplied URL. The protocol necessarily brings code/state in the callback URL: failed callback responses do not erase browser history. Configure proxies/access logs to redact query strings and response cookies; Successful callbacks now finish with the fixed safe Stage 3B post-login redirect. Nothing is written to localStorage/sessionStorage.
 
-Successful callbacks return only:
-
-```json
-{"status":"oidc_identity_verified","message":"OIDC identity verified; Tutti account linking and sessions are not implemented."}
-```
-
-### Stage 3 boundary
-
-The trusted provider adapter returns `domain.VerifiedIdentity{Issuer, Subject}` through `application.OIDCExchange.ExchangeAndVerify`. After single-use browser correlation, `application.OIDCCallback.Complete` returns that identity in `OIDCCallbackResult.Identity` and sets `Consumed` so the HTTP layer can clear the cookie. The current handler deliberately does not serialize or persist the identity. Stage 3A now provides internal resolution/provisioning below. Stage 3B must integrate resolution **after** this successful result, using the exact `(issuer, subject)` key. It must not construct a `Principal` or infer enrollment, tutor qualification, coordinator faculty or suspension state from Keycloak claims.
-
-There are no PostgreSQL writes/migrations, application-session Redis writes, application cookies, account-linking changes, React changes or legacy-login removal in Stage 2. A browser with no prior Tutti session still receives 401 from `/api/v1/auth/me` after OIDC success. An already-existing independent legacy session is not changed by this protocol-only callback.
+Successful protocol verification returns a trusted `domain.VerifiedIdentity{Issuer,
+Subject}` to the application orchestrator, never JSON to the browser. The former
+Stage 2 `oidc_identity_verified` development JSON has been replaced by Stage 3B's
+session cookie and `303` redirect. The reusable `OIDCCallback.Complete` still
+performs only protocol verification and single-use transaction consumption;
+`OIDCAuthentication.Complete` composes it with the reader capability and existing
+Identity session service. No account is implicitly created or linked.
 
 ### Stage 2 verification
 
-Mock-provider tests use test RSA signing keys and cover valid exchange/callback, client authentication/PKCE/redirect matching, missing/invalid responses, claim/signature/type/algorithm rejection, issuer/audience/authorized-party/nonce/time checks, key rotation, provider denial, transport failure/cancellation, strict parameter/cookie parsing, privacy and single-use concurrency. The service-backed suite combines actual Redis with HTTP initiation/callback and a signed mock provider; exactly one concurrent callback succeeds and no Tutti session is created. Existing authentication and cancellation regressions remain in the suite.
+Mock-provider tests use test RSA signing keys and cover valid exchange/callback, client authentication/PKCE/redirect matching, missing/invalid responses, claim/signature/type/algorithm rejection, issuer/audience/authorized-party/nonce/time checks, key rotation, provider denial, transport failure/cancellation, strict parameter/cookie parsing, privacy and single-use concurrency. The service-backed suite combines actual Redis with HTTP initiation/callback and a signed mock provider; exactly one concurrent callback succeeds, creates a fresh Tutti session and revokes the prior browser session. Existing authentication and cancellation regressions remain in the suite.
 
-Use the Go and integration commands above. For local Keycloak, configure the exact callback/client secret, create only a synthetic user as in the [demo guide](sso-demo.md), start the API, then navigate to `/api/v1/auth/oidc/login` in the same browser. Expected result after Keycloak sign-in is the development JSON above; `/api/v1/auth/me` remains unauthenticated without an independent legacy session. This is not real Uni.lu identity or academic verification.
+Use the Go and integration commands above. For local Keycloak, configure the exact callback/client secret, create only a synthetic user as in the [demo guide](sso-demo.md), start the API, then navigate to `/api/v1/auth/oidc/login` in the same browser. An explicitly prelinked eligible identity now receives a Tutti session; unknown identities get generic 401. See the repeatable real-browser test in Stage 3B. This is not real Uni.lu identity or academic verification.
 
 ## OIDC Stage 3A: persistent identity binding
 
@@ -213,11 +220,11 @@ Migration [000016](../backend/migrations/000016_oidc_identities.up.sql) adds `oi
 
 `postgres.Repository.LookupOIDCIdentity` uses a read-only repeatable-read transaction to read the mapping and existing Identity `readPrincipal` projection from one snapshot. It does not rewrite mapping timestamps or any account data. Returned roles, academic program, verification, active tutor profile, faculty, suspension and closure are current PostgreSQL authority, independent of IdP claims. An active pending/rejected student can be resolved, matching existing login behavior, but `VerifiedStudent()` and `CanTutor()` remain false. An inactive tutor profile does not grant tutor privileges. Coordinator authority comes only from Tutti's coordinator row. Suspended, closed or roleless accounts return `ErrForbidden` with an empty principal.
 
-Unknown exact pairs return `domain.ErrOIDCIdentityUnlinked` (also matching `ErrNotFound`), not a newly registered account. Invalid fields/untrusted issuers return `ErrInvalid`; database/cancellation failures remain errors and never become an authenticated principal. Resolution is a point-in-time result, not a durable authorization grant. Future session establishment must recheck account eligibility at its authorization boundary; existing protected requests must continue reloading current permissions.
+Unknown exact pairs return `domain.ErrOIDCIdentityUnlinked` (also matching `ErrNotFound`), not a newly registered account. Invalid fields/untrusted issuers return `ErrInvalid`; database/cancellation failures remain errors and never become an authenticated principal. Resolution is a point-in-time result, not a durable authorization grant. Stage 3B session establishment rechecks account eligibility at its authorization boundary; existing protected requests must continue reloading current permissions.
 
 ### Trusted provisioning capability
 
-`application.NewTrustedOIDCProvisioner(writer OIDCIdentityWriter, trustedIssuer)` exposes `LinkOIDCIdentity(ctx, existingUserID, verifiedIdentity)` to trusted **internal setup only**. It is deliberately a separate capability from the resolver. No HTTP endpoint, public administrator route, CLI, account-linking screen or callback-selected user ID is added. The current callback still returns its Stage 2 development response; it does not resolve, link or authenticate a Tutti user.
+`application.NewTrustedOIDCProvisioner(writer OIDCIdentityWriter, trustedIssuer)` exposes `LinkOIDCIdentity(ctx, existingUserID, verifiedIdentity)` to trusted **internal setup only**. It is deliberately a separate capability from the resolver. No HTTP endpoint, public administrator route, CLI, account-linking screen or callback-selected user ID is added. The current Stage 3B callback uses the resolver and establishes sessions; the provisioning writer remains unavailable to callbacks and browsers.
 
 A future authorized linking workflow must establish both ownership proofs: the external identity must come from successful Stage 2 verification, and the choice of existing Tutti account must come from a trusted provisioning record or an explicitly authorized ownership-confirmation workflow. Simply knowing a user ID is not permission to link it. For this course stage, integration fixtures serve as trusted setup for existing synthetic users. Do not hand the provisioning capability to the ordinary callback or choose a user ID from an IdP claim/query string. A broader administrator/linking workflow remains separate work.
 
@@ -246,9 +253,9 @@ Resetting the demo Keycloak realm can generate new subjects/signing keys. The sa
 
 ### Stage 3B handoff and verification
 
-After successful `OIDCCallback.Complete`, Stage 3B should call `resolver.ResolveOIDCIdentity(ctx, result.Identity)` before any application authentication decision. It must handle unlinked and disabled users safely, preserve pending/rejected restrictions, and establish sessions only through a separately authorized Identity workflow with fresh account checks. Unknown identities must not trigger implicit registration or email matching. Stage 3A itself creates no Redis application session, sets no application cookie, and leaves the Stage 2 success response unchanged. Session creation, browser account-linking/onboarding and safe post-login redirects remain future work.
+After successful `OIDCCallback.Complete`, Stage 3B calls `resolver.ResolveOIDCIdentity(ctx, result.Identity)` before any application authentication decision. It must handle unlinked and disabled users safely, preserve pending/rejected restrictions, and establish sessions only through a separately authorized Identity workflow with fresh account checks. Unknown identities must not trigger implicit registration or email matching. The Stage 3A resolver/provisioner components by themselves create no Redis session or cookie; Stage 3B composes them into the integrated callback. Session creation and fixed post-login redirects are now implemented in Stage 3B. Browser account linking/onboarding remains #66/#68 work.
 
-Application tests cover trusted issuer/field validation, unknown/failure handling and unchanged principal permissions. Real PostgreSQL tests cover both unique constraints under concurrent attempts, exact idempotence, mutable email/name, disabled accounts, existing student/tutor/coordinator state, account-close races and rollback after insert failure. Snapshots verify no changes to existing user/role/qualification/session/feedback/history records, while Redis checks verify no application sessions are issued. The schema runner checks migration 16 up/down/reapply, uniqueness, restrictive FK, existing-data preservation and its populated-table rollback guard on a disposable database.
+Application tests cover trusted issuer/field validation, unknown/failure handling and unchanged principal permissions. Real PostgreSQL tests cover both unique constraints under concurrent attempts, exact idempotence, mutable email/name, disabled accounts, existing student/tutor/coordinator state, account-close races and rollback after insert failure. Binding-only test snapshots verify no changes to existing user/role/qualification/session/feedback/history records and no Redis application sessions from provisioning/resolution alone. The schema runner checks migration 16 up/down/reapply, uniqueness, restrictive FK, existing-data preservation and its populated-table rollback guard on a disposable database.
 
 Stage 3A verification on 2026-11-23: `go test -race ./...`, `go vet ./...` and `go build ./...` passed from `backend`; `bash backend/tests/integration/test_identity.sh -race` and `python3 backend/tests/integration/test_schema.py` passed from the repository root. The schema runner verified all 34 tables, migration 16 up/down/reapply and its populated-table guard. The service-backed suite skipped only the unrelated opt-in worker-container and live university SMTP probes. No production migration or live IdP provisioning was performed for Stage 3A; Stage 2 cryptography and its existing callback behavior were preserved and covered by regression tests.
 
@@ -264,3 +271,112 @@ interval, 3-second check budget and per-event checks are unchanged. Reconnect
 must refetch `/api/v1/auth/me` and authorized visible data. See [realtime
 delivery](realtime-delivery.md). No new account/SSO/program administration API
 is introduced.
+
+
+## OIDC Stage 3B: authenticated Tutti sessions
+
+### Application and session lifecycle
+
+`OIDCAuthentication` composes the existing `OIDCCallback`, the narrow
+`OIDCResolver` reader and Identity `Service`. No provisioning writer is injected
+into the callback. After verified `(issuer, subject)` resolution, it re-reads the
+current Principal immediately before issuing a session. Pending/rejected students
+can authenticate with restricted privileges, just as with legacy login. Inactive,
+suspended, closed, roleless, unknown or conflicting identities never gain access.
+No email, grade, Keycloak role or verified-email claim grants application authority.
+
+A fresh 32-byte cryptographic opaque token is created. The existing Redis session
+adapter atomically `SET NX`s its SHA-256-derived key and revokes the previous
+application session key with one Lua script. A collision cannot overwrite a session
+or revoke the preceding one. Only a successful rotation returns an application
+cookie. Redis stores only the Tutti user UUID, under `tutti:identity:session:*`,
+with the existing fixed `SESSION_TTL` (default 8 hours). Reauthentication starts a
+fresh lifetime; ordinary requests do not extend expiry. Provider tokens remain
+request-local and are neither persisted nor returned to the browser.
+
+Redis and PostgreSQL are separate stores: there is no distributed transaction.
+The eligibility recheck is point-in-time; middleware reloads current PostgreSQL
+authorization on **every** protected request, so a concurrent/later suspension or
+faculty/role change cannot confer stale access. A lost Redis acknowledgement can
+leave an inaccessible token until TTL or revoke the old session without returning
+a new cookie; it never causes a successful callback response on failure. No
+automatic retry uses an already-consumed transaction. Start login again.
+
+### HTTP, cookies and safe destinations
+
+| Endpoint | Current behavior |
+| --- | --- |
+| `GET /api/v1/auth/oidc/login` | Public initiation; 302 to discovered provider, short-lived HttpOnly binding cookie. Rejects queries/return URLs (400), explicit foreign origins/cross-site initiation (403), rate excess (429) and provider/Redis unavailability (503). |
+| `GET /api/v1/auth/oidc/callback` | Public IdP navigation with exactly one state and code **or** error, and exactly one temporary cookie. Matching transactions are consumed once; successful authentication sets the existing application cookie, clears the temporary cookie and redirects 303 to `OIDC_POST_LOGIN_PATH`. |
+| `GET /api/v1/auth/me` | Existing protected profile/permissions, loaded from current PostgreSQL state using the Redis opaque session. |
+| `POST /api/v1/auth/logout` | Existing authenticated, exact-Origin-protected local logout; revokes Redis session and clears application cookie (204). It does not log out the Keycloak browser session. |
+
+Callback errors are generic: 400 malformed/wrong-browser/expired/replayed state;
+401 provider denial, rejected token, unknown/conflicting identity; 403 ineligible
+account; 503 transaction-store, lookup or session-persistence failure. No provider
+bodies, identity claims, token, code, state, nonce or secret appear in errors/logs.
+Matching consumed transactions clear only their temporary cookie, including later
+failures. Malformed/unmatched callbacks leave another valid attempt untouched.
+Failed OIDC never invokes legacy login; an independent existing session is not a
+fallback. Callback/initiation responses use no-store and no-referrer.
+
+Application cookies reuse `tutti_session` on loopback HTTP and
+`__Host-tutti_session` on HTTPS: HttpOnly, SameSite=Lax, path `/`, no Domain,
+Secure on HTTPS, Max-Age equal to `SESSION_TTL`. Duplicate application cookies in a
+callback are rejected before consumption. Login and callback destinations cannot
+come from caller query parameters. `OIDC_POST_LOGIN_PATH` defaults to `/` and must
+be a fixed same-origin path of at most 512 ASCII letters/digits, `/`, `_` or `-`;
+`//`, URLs, encoded slashes, query strings, fragments and controls are rejected at
+startup. Serve the real frontend under `PUBLIC_ORIGIN` when using `/`; a standalone
+API does not serve a React homepage. #68 owns the frontend SSO button/outcome UX.
+
+`OIDC_HTTP_TIMEOUT` controls discovery, token and JWKS requests (1–10 whole seconds,
+default 3s). It does not weaken existing REST server deadlines. The existing
+RS256-only verification policy and key-rotation handling remain enabled. HTTPS is
+required outside the explicit loopback development exception.
+
+### Initiation resource limits
+
+No general HTTP rate limiter existed. OIDC initiation now uses a shared Redis
+fixed-window budget: at most 10 attempts per actual TCP peer per minute, plus 120
+attempts globally per minute. Forwarded-IP headers are deliberately ignored until
+an approved trusted-proxy policy exists. Behind a proxy/NAT the peer budget is
+shared; deployment tuning/proxy trust belongs to operational/security follow-up.
+All limiter keys expire after a minute, peer keys use digests, and the global gate
+bounds new peer keys. 429 includes `Retry-After: 60`; a failed limiter returns 503
+without provider work or a new transaction/cookie.
+
+### Provisioning and repeatable tests
+
+There is no public linking API or automatic registration. Reuse the existing
+`TrustedOIDCProvisioner` only from trusted internal setup after establishing
+ownership of an existing Tutti account and the exact provider subject. #66 owns
+full migration/reconciliation; #67 owns password retirement; #68 owns React UX;
+#69 owns the broader threat model and release security review. This task does not
+claim official Uni.lu enrollment/authentication or revise D01/FR1/FR23 (#70).
+
+```sh
+(cd backend && go test -race ./... && go vet ./... && go build ./...)
+bash backend/tests/integration/test_identity.sh -race
+# Requires npm ci and Chromium in frontend/ (npx playwright install chromium).
+# Uses port 8180 exclusively; refuses an existing provider there.
+python3 backend/tests/integration/test_oidc_keycloak.py
+```
+
+The opt-in Python runner starts only a disposable Keycloak project, then reuses
+the PostgreSQL/Redis integration runner and all current migrations. The Go test
+provisions synthetic provider users through the owned realm's admin API, binds
+five accounts through `TrustedOIDCProvisioner`, and runs the **actual production
+bootstrap** on an available loopback port. Only that disposable client's exact
+callback/origin are changed to the test port; the committed localhost:8080
+contract and issuer verification remain intact. The configured success path for
+this API-only smoke is `/api/v1/auth/me`, not a claim of React SSO integration.
+
+The browser helper reuses the installed frontend Playwright dependency, signs into
+Keycloak through its real form, verifies cookies/profile/protected APIs, previous
+session revocation, local logout, pending/coordinator restrictions, cross-faculty denial, suspension of an existing
+SSO session and rejection of unknown/suspended identities. It records no screenshots, traces, raw tokens or
+passwords. Disposable services, database, volume and network are cleaned afterward.
+The standard Go runner skips this opt-in test; run the explicit command above for
+actual Keycloak/browser evidence. See the [#65 handoff](oidc-authentication-verification.md) and [OpenAPI contract](openapi/identity-oidc.yaml)
+for the final commands, results, acceptance matrix and remaining integration work.

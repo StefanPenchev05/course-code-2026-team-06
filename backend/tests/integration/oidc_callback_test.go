@@ -118,6 +118,12 @@ func TestOIDCVerifiedCallback(t *testing.T) {
 	nonce = target.Query().Get("nonce")
 	challenge = target.Query().Get("code_challenge")
 	cookie := start.Result().Cookies()[0]
+	var retained domain.OIDCTransaction
+	raw, err := client.Get(ctx, "tutti:identity:oidc:"+domain.OIDCHash(state)).Bytes()
+	if err != nil || json.Unmarshal(raw, &retained) != nil {
+		t.Fatal("missing server-side transaction fixture")
+	}
+
 	query := url.Values{"state": {state}, "code": {"synthetic-code"}, "iss": {issuer}}
 	request := func(binding string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("GET", "/api/v1/auth/oidc/callback?"+query.Encode(), nil)
@@ -188,4 +194,41 @@ func TestOIDCVerifiedCallback(t *testing.T) {
 	if loggedOut.Code != 204 || me(appCookie).Code != 401 {
 		t.Fatal("OIDC logout did not revoke session")
 	}
+	failedAttempt := func(t *testing.T, want int) {
+		t.Helper()
+		before := len(client.Keys(ctx, "tutti:identity:session:*").Val())
+		state := oauth2.GenerateVerifier()
+		query.Set("state", state)
+		if err := store.Save(ctx, state, retained, time.Minute); err != nil {
+			t.Fatal(err)
+		}
+		out := request(cookie.Value)
+		if out.Code != want || len(out.Result().Cookies()) != 1 || out.Result().Cookies()[0].MaxAge != -1 || out.Header().Get("Location") != "" {
+			t.Fatal("failure issued session or retained consumed cookie", out.Code)
+		}
+		if len(client.Keys(ctx, "tutti:identity:session:*").Val()) != before {
+			t.Fatal("failed callback persisted a session")
+		}
+		if strings.TrimSpace(out.Body.String()) != `{"error":"OIDC authentication unavailable"}` {
+			t.Fatal("unsafe callback error")
+		}
+	}
+	t.Run("PostgreSQL resolution failure", func(t *testing.T) {
+		f.exec(t, "ALTER TABLE oidc_identities RENAME TO unavailable_oidc_identities")
+		defer f.exec(t, "ALTER TABLE unavailable_oidc_identities RENAME TO oidc_identities")
+		failedAttempt(t, 503)
+	})
+	t.Run("Redis rotation failure after valid resolution", func(t *testing.T) {
+		failedCache := redis.NewClient(options)
+		failedCache.Close()
+		failedService, err := application.New(ctx, repo, sessionredis.New(failedCache), passwords, application.Config{Domains: []string{"uni.example"}, SessionTTL: time.Hour, ActivationTTL: time.Hour})
+		if err != nil {
+			t.Fatal(err)
+		}
+		failedHandler := identityhttp.New(failedService, config.PublicOrigin, true, slog.Default())
+		mux = http.NewServeMux()
+		failedHandler.RegisterOIDCCallback(mux, application.NewOIDCAuthentication(application.NewOIDCCallback(provider, store, issuer), resolver, failedService), "/sessions")
+		failedAttempt(t, 503)
+	})
+
 }

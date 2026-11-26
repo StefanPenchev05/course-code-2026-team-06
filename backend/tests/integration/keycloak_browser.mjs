@@ -25,7 +25,9 @@ try {
       assert.ok(temporary?.httpOnly && temporary.sameSite === 'Lax');
       await page.getByRole('textbox', { name: /username|email/i }).fill(user.username);
       await page.getByLabel('Password', { exact: true }).fill(config.password);
+      const callbackResponse = page.waitForResponse((response) => response.url().startsWith(`${config.origin}/api/v1/auth/oidc/callback?`));
       await page.getByRole('button', { name: /sign in/i }).click();
+      assert.equal((await callbackResponse).status(), user.status === 200 ? 303 : user.status);
       if (user.status === 200) {
         await page.waitForURL(`${config.origin}/api/v1/auth/me`);
         const response = await page.request.get(`${config.origin}/api/v1/auth/me`);
@@ -34,6 +36,13 @@ try {
         assert.equal(me.id, user.id);
         assert.equal(me.verified_student, user.verified);
         assert.deepEqual(me.roles.sort(), user.roles.sort());
+        if (user.faculty) {
+          assert.equal(me.coordinator_faculty_id, user.faculty);
+          assert.equal((await page.request.get(`${config.origin}/api/v1/coordinator/verifications/${user.foreignVerification}`)).status(), 404);
+          assert.equal((await page.request.get(`${config.origin}/api/v1/coordinator/verifications`)).status(), 200);
+        } else {
+          assert.equal((await page.request.get(`${config.origin}/api/v1/coordinator/verifications`)).status(), 403);
+        }
         const appCookie = (await context.cookies(config.origin)).find((cookie) => cookie.name === 'tutti_session');
         assert.ok(appCookie?.httpOnly && appCookie.sameSite === 'Lax' && appCookie.value !== user.oldSession);
         assert.equal((await page.request.get(`${config.origin}/api/v1/semesters`)).status(), user.semesters);
@@ -42,8 +51,16 @@ try {
           try { assert.equal((await old.get(`${config.origin}/api/v1/auth/me`)).status(), 401); }
           finally { await old.dispose(); }
         }
-        assert.equal((await page.request.post(`${config.origin}/api/v1/auth/logout`, { headers: { Origin: config.origin } })).status(), 204);
-        assert.equal((await page.request.get(`${config.origin}/api/v1/auth/me`)).status(), 401);
+        if (user.suspendAfterLogin) {
+          const staff = await request.newContext({ extraHTTPHeaders: { Cookie: `tutti_session=${config.coordinatorSession}`, Origin: config.origin } });
+          try {
+            assert.equal((await staff.post(`${config.origin}/api/v1/coordinator/users/${user.id}/suspend`, { data: { reason: 'Synthetic live-session restriction check.' } })).status(), 200);
+          } finally { await staff.dispose(); }
+          assert.equal((await page.request.get(`${config.origin}/api/v1/auth/me`)).status(), 403);
+        } else {
+          assert.equal((await page.request.post(`${config.origin}/api/v1/auth/logout`, { headers: { Origin: config.origin } })).status(), 204);
+          assert.equal((await page.request.get(`${config.origin}/api/v1/auth/me`)).status(), 401);
+        }
       } else {
         await page.waitForURL((url) => url.origin === config.origin && url.pathname === '/api/v1/auth/oidc/callback');
         const error = JSON.parse(await page.locator('body').innerText());
