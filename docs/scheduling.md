@@ -215,3 +215,12 @@ See [Feedback](feedback.md) for rating completed sessions and how a no-show corr
 ## Realtime publication (#87)
 
 Migration 17 captures booking status, availability and participant-reservation changes in a dedicated transactional outbox. API dispatchers fan out committed event IDs over Redis, including writes from the separate expiration worker and administrative cancellation/attendance paths. Existing history, email and locking workflows are unchanged. See [realtime delivery](realtime-delivery.md) for capture coverage, current recipient authorization, the availability-watch API, retries, migration ordering and #90/#89 handoff.
+
+### Semester options for weekly availability (#31)
+
+Tutors can populate the weekly-rule picker from authenticated
+`GET /api/v1/semesters`. It returns `{"data":[...]}` containing current and upcoming
+semesters (`id`, `name`, `starts_at`, `ends_at`) in chronological order, with UTC
+bounds. Empty calendars return an empty array. See [Catalog](catalog.md#tutor-semester-picker-31)
+for permissions and boundary behavior. Submit the selected `id` as `semester_id`;
+existing recurrence, semester and conflict validation still applies on creation.

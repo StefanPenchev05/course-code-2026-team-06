@@ -1,7 +1,7 @@
-import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { request, type APIRequestContext } from '@playwright/test';
 import { E2E, newPassword, type TestCatalog } from './env';
+import { runSql } from './database';
 
 /**
  * Runs once before the journeys:
@@ -93,13 +93,4 @@ async function createTestCatalog(api: APIRequestContext): Promise<TestCatalog> {
     coordinatorEmail,
     coordinatorPassword,
   };
-}
-
-function runSql(sql: string) {
-  try {
-    execFileSync('psql', [E2E.databaseURL, '-v', 'ON_ERROR_STOP=1', '-q', '-c', sql], { stdio: ['ignore', 'ignore', 'pipe'] });
-  } catch (error) {
-    const stderr = (error as { stderr?: Buffer }).stderr?.toString().trim();
-    throw new Error(`Could not provision test data with psql: ${stderr || String(error)}`, { cause: error });
-  }
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/catalog/domain"
+	identity "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/domain"
 )
 
 // Counts are aggregate evidence only; no participant IDs or private data.
@@ -81,6 +82,26 @@ func (s *CalendarService) List(ctx context.Context) (CalendarReceipt, error) {
 	err := s.repo.CalendarTransaction(ctx, true, func(tx CalendarTx) (err error) { r.Semesters, err = tx.List(ctx); return err })
 	r.Outcome = "inspected"
 	return r, err
+}
+
+// ListForTutor reuses the CLI's read-only listing without changing the CLI's
+// full-calendar behavior or exposing its operator receipt through HTTP.
+func (s *CalendarService) ListForTutor(ctx context.Context, actor identity.Principal) ([]domain.Semester, error) {
+	if !actor.CanTutor() {
+		return nil, identity.ErrForbidden
+	}
+	receipt, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]domain.Semester, 0, len(receipt.Semesters))
+	for _, entry := range receipt.Semesters {
+		if entry.EndsAt.After(receipt.ActionAt) {
+			entry.StartsAt, entry.EndsAt = entry.StartsAt.UTC(), entry.EndsAt.UTC()
+			rows = append(rows, entry)
+		}
+	}
+	return rows, nil
 }
 func (s *CalendarService) Create(ctx context.Context, input domain.CalendarInput, dryRun, acknowledgeOverlap bool) (CalendarReceipt, error) {
 	r := s.receipt("create", dryRun)

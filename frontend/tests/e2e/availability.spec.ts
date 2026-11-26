@@ -23,9 +23,12 @@ test('a tutor manages weekly and one-off free times, and booked time is protecte
   const tutor = await approvedTutor('availability', 'Patient explanations.', 18.5);
 
   // Setup: one weekly time, created through the real API. The page can't create weekly times yet,
-  // because the API has no list of semesters to choose from (reported to the backend).
+  // although GET /semesters is now available; creating weekly times still has no UI control.
   const weekly = localDay(new Date(Date.now() + 3 * DAY_MS));
   const tutorApi = await loggedIn(tutor.email, tutor.password);
+  const semesters = await tutorApi.get('/api/v1/semesters');
+  expect(semesters.status()).toBe(200);
+  expect((await semesters.json()).data).toContainEqual(expect.objectContaining({ id: testCatalog().semesterId }));
   const rule = await tutorApi.post('/api/v1/tutors/me/availability/rules', {
     data: {
       semester_id: testCatalog().semesterId,
@@ -90,9 +93,8 @@ test('a tutor manages weekly and one-off free times, and booked time is protecte
     data: { id: string; starts_at: string; is_recurring: boolean }[];
   };
   const target = windows.data.find((window) => !window.is_recurring)!;
-  await tutorApi.dispose();
   const learner = await verifiedStudent('booker');
-  await bookWindow(learner, me.id, target.id, target.starts_at);
+  const bookingId = await bookWindow(learner, me.id, target.id, target.starts_at);
 
   // ... so the tutor can't remove it, and the page says why.
   await page.reload();
@@ -101,4 +103,26 @@ test('a tutor manages weekly and one-off free times, and booked time is protecte
   await booked.getByRole('button', { name: 'Yes, remove' }).click();
   await expect(booked.getByRole('alert')).toContainText('A student has a booking that depends on this time');
   await expect(page.getByText('Online · One-off')).toBeVisible();
+
+  // Releasing the booking makes the same deletion legal; both UI and persisted lists agree.
+  const learnerApi = await loggedIn(learner.email, learner.password);
+  try {
+    expect((await learnerApi.post(`/api/v1/sessions/${bookingId}/cancel`, { data: { reason: 'No longer needed.' } })).status()).toBe(200);
+  } finally {
+    await learnerApi.dispose();
+  }
+  await booked.getByRole('button', { name: 'Yes, remove' }).click();
+  await expect(page.getByText('Online · One-off')).toHaveCount(0);
+  await page.getByRole('button', { name: /^Delete Every/ }).click();
+  await page.getByRole('button', { name: 'Yes, delete' }).click();
+  await expect(page.getByText('You have no weekly times.')).toBeVisible();
+  await page.reload();
+  await expect(page.getByText('You have no weekly times.')).toBeVisible();
+  const remainingRules = await tutorApi.get('/api/v1/tutors/me/availability/rules');
+  expect(remainingRules.status()).toBe(200);
+  expect((await remainingRules.json()).data).toEqual([]);
+  const remainingSlots = await tutorApi.get('/api/v1/tutors/me/availability');
+  expect(remainingSlots.status()).toBe(200);
+  expect((await remainingSlots.json()).data).toEqual([]);
+  await tutorApi.dispose();
 });
