@@ -29,6 +29,8 @@ type Repository interface {
 }
 
 type Sessions interface {
+	// Rotate atomically creates a fresh session and revokes the previous key, if present.
+	Rotate(ctx context.Context, key, userID, previousKey string, ttl time.Duration) error
 	Create(ctx context.Context, key, userID string, ttl time.Duration) error
 	Lookup(ctx context.Context, key string) (string, error)
 	Revoke(ctx context.Context, key string) error

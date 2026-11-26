@@ -51,6 +51,21 @@ func (p *callbackExchange) ExchangeAndVerify(_ context.Context, code, verifier, 
 	return domain.VerifiedIdentity{Issuer: "https://idp.example", Subject: "private-subject"}, p.err
 }
 
+// Test double for HTTP cookie/error mapping around the already-tested protocol stage.
+// Real identity resolution and Redis sessions are exercised by integration tests.
+type protocolAuthentication struct{ callback *application.OIDCCallback }
+
+func (p protocolAuthentication) Complete(ctx context.Context, r application.OIDCResponse, binding, previous string) (application.OIDCAuthenticationResult, error) {
+	result, err := p.callback.Complete(ctx, r, binding)
+	out := application.OIDCAuthenticationResult{Consumed: result.Consumed}
+	if err == nil {
+		out.Token = oauth2.GenerateVerifier()
+		out.TTL = time.Hour
+	}
+	return out, err
+}
+func allowOIDCTest(context.Context, string) (bool, error) { return true, nil }
+
 func TestOIDCCallbackHTTP(t *testing.T) {
 	for _, secure := range []bool{false, true} {
 		t.Run(map[bool]string{false: "loopback", true: "HTTPS"}[secure], func(t *testing.T) {
@@ -61,7 +76,7 @@ func TestOIDCCallbackHTTP(t *testing.T) {
 			h := New(nil, "http://localhost:8080", secure, slog.New(slog.NewTextHandler(&logs, nil)))
 			mux := http.NewServeMux()
 			h.RegisterRoutes(mux)
-			h.RegisterOIDCCallback(mux, application.NewOIDCCallback(provider, store, "https://idp.example"))
+			h.RegisterOIDCCallback(mux, protocolAuthentication{application.NewOIDCCallback(provider, store, "https://idp.example")}, "/")
 			normal := "state=" + state + "&code=private-authorization-code"
 			request := func(method, query, browser string, duplicate bool) *httptest.ResponseRecorder {
 				r := httptest.NewRequest(method, "/api/v1/auth/oidc/callback?"+query, nil)
@@ -119,11 +134,11 @@ func TestOIDCCallbackHTTP(t *testing.T) {
 				})
 			}
 			w := request("GET", normal, binding, false)
-			if w.Code != 200 || !store.spent || provider.calls.Load() != 1 {
+			if w.Code != 303 || !store.spent || provider.calls.Load() != 1 {
 				t.Fatal("valid callback rejected", w.Code)
 			}
 			cookies := w.Result().Cookies()
-			if len(cookies) != 1 || cookies[0].Name != h.oidcCookieName() || cookies[0].MaxAge != -1 || cookies[0].Value != "" || cookies[0].Secure != secure || !cookies[0].HttpOnly || cookies[0].Path != "/" || cookies[0].Domain != "" {
+			if len(cookies) != 2 || cookies[0].Name != h.oidcCookieName() || cookies[0].MaxAge != -1 || cookies[0].Value != "" || cookies[0].Secure != secure || !cookies[0].HttpOnly || cookies[0].Path != "/" || cookies[0].Domain != "" {
 				t.Fatal("temporary cookie not cleared safely")
 			}
 			if w.Header().Get("Cache-Control") != "no-store" || w.Header().Get("Referrer-Policy") != "no-referrer" {
@@ -140,7 +155,7 @@ func TestOIDCCallbackHTTP(t *testing.T) {
 			me := httptest.NewRecorder()
 			mux.ServeHTTP(me, httptest.NewRequest("GET", "/api/v1/auth/me", nil))
 			if me.Code != 401 {
-				t.Fatal("OIDC callback created an app session")
+				t.Fatal("missing application cookie authenticated a request")
 			}
 		})
 	}
@@ -167,7 +182,7 @@ func TestOIDCCallbackDenialsAndConcurrency(t *testing.T) {
 			var logs bytes.Buffer
 			h := New(nil, "http://localhost:8080", false, slog.New(slog.NewTextHandler(&logs, nil)))
 			mux := http.NewServeMux()
-			h.RegisterOIDCCallback(mux, application.NewOIDCCallback(provider, store, "https://idp.example"))
+			h.RegisterOIDCCallback(mux, protocolAuthentication{application.NewOIDCCallback(provider, store, "https://idp.example")}, "/")
 			query := url.Values{"state": {state}, "code": {"private-code"}}
 			if scenario == "denied" {
 				delete(query, "code")
@@ -189,7 +204,7 @@ func TestOIDCCallbackDenialsAndConcurrency(t *testing.T) {
 				success := 0
 				for range 8 {
 					code := <-done
-					if code == 200 {
+					if code == 303 {
 						success++
 					} else if code != 400 {
 						t.Fatal(code)

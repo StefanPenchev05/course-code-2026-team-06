@@ -16,8 +16,11 @@ import (
 	"time"
 
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/application"
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/domain"
 	oidcprovider "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/oidc"
+	identitypg "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/postgres"
 	sessionredis "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/redis"
+	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/infrastructure/security"
 	identityhttp "github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/interfaces/http"
 	jose "github.com/go-jose/go-jose/v4"
 	"github.com/redis/go-redis/v9"
@@ -25,6 +28,8 @@ import (
 )
 
 func TestOIDCVerifiedCallback(t *testing.T) {
+	isolatedRealtimeDatabase(t)
+	f := newBookingFixture(t)
 	address := os.Getenv("TUTTI_TEST_REDIS_URL")
 	if address == "" {
 		t.Skip("use test_identity.sh for disposable Redis")
@@ -76,11 +81,28 @@ func TestOIDCVerifiedCallback(t *testing.T) {
 		t.Fatal(err)
 	}
 	store := sessionredis.NewOIDCTransactions(client)
-	h := identityhttp.New(nil, config.PublicOrigin, false, slog.Default())
+	repo := identitypg.New(f.db)
+	passwords, _ := security.NewPasswords(security.Cost{Memory: 19 * 1024, Time: 2, Threads: 1}, 2)
+	service, err := application.New(ctx, repo, sessionredis.New(client), passwords, application.Config{Domains: []string{"uni.example"}, SessionTTL: time.Hour, ActivationTTL: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolver, err := application.NewOIDCIdentityResolver(repo, issuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	provisioner, err := application.NewTrustedOIDCProvisioner(repo, issuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := provisioner.LinkOIDCIdentity(ctx, fixture(bookingTutor), domain.VerifiedIdentity{Issuer: issuer, Subject: "synthetic-private-subject"}); err != nil {
+		t.Fatal(err)
+	}
+	h := identityhttp.New(service, config.PublicOrigin, true, slog.Default())
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
-	h.RegisterOIDC(mux, application.NewOIDCLogin(provider, store, config.TransactionTTL))
-	h.RegisterOIDCCallback(mux, application.NewOIDCCallback(provider, store, config.Issuer))
+	h.RegisterOIDC(mux, application.NewOIDCLogin(provider, store, config.TransactionTTL), sessionredis.NewOIDCLimiter(client).Allow)
+	h.RegisterOIDCCallback(mux, application.NewOIDCAuthentication(application.NewOIDCCallback(provider, store, config.Issuer), resolver, service), "/sessions")
 	start := httptest.NewRecorder()
 	mux.ServeHTTP(start, httptest.NewRequest("GET", "/api/v1/auth/oidc/login", nil))
 	if start.Code != 302 {
@@ -95,6 +117,7 @@ func TestOIDCVerifiedCallback(t *testing.T) {
 	request := func(binding string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest("GET", "/api/v1/auth/oidc/callback?"+query.Encode(), nil)
 		r.AddCookie(&http.Cookie{Name: cookie.Name, Value: binding})
+		r.AddCookie(f.cookie[bookingTutor])
 		w := httptest.NewRecorder()
 		mux.ServeHTTP(w, r)
 		return w
@@ -108,12 +131,20 @@ func TestOIDCVerifiedCallback(t *testing.T) {
 		go func() { done <- request(cookie.Value) }()
 	}
 	success := 0
+	var appCookie *http.Cookie
 	for range 6 {
 		out := <-done
-		if out.Code == 200 {
+		if out.Code == 303 {
 			success++
-			if len(out.Result().Cookies()) != 1 || out.Result().Cookies()[0].MaxAge != -1 {
+			if len(out.Result().Cookies()) != 2 || out.Result().Cookies()[0].MaxAge != -1 {
 				t.Fatal("temporary cookie not cleared")
+			}
+			if out.Header().Get("Location") != "/sessions" {
+				t.Fatal("untrusted destination")
+			}
+			appCookie = out.Result().Cookies()[1]
+			if appCookie.Name != "__Host-tutti_session" || !appCookie.Secure || !appCookie.HttpOnly || appCookie.SameSite != http.SameSiteLaxMode || appCookie.Value == f.cookie[bookingTutor].Value || appCookie.MaxAge != 3600 {
+				t.Fatal("unsafe/fixed application cookie")
 			}
 			for _, private := range []string{nonce, "synthetic-private-subject", "private-access-token", "synthetic-client-secret", "synthetic-code"} {
 				if strings.Contains(out.Body.String(), private) {
@@ -130,9 +161,26 @@ func TestOIDCVerifiedCallback(t *testing.T) {
 	if request(cookie.Value).Code != 400 {
 		t.Fatal("callback replay")
 	}
-	me := httptest.NewRecorder()
-	mux.ServeHTTP(me, httptest.NewRequest("GET", "/api/v1/auth/me", nil))
-	if me.Code != 401 {
-		t.Fatal("OIDC verification authenticated Tutti account")
+	me := func(cookie *http.Cookie) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("GET", "/api/v1/auth/me", nil)
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		return w
+	}
+	current := me(appCookie)
+	if current.Code != 200 || fields(t, current)["id"] != fixture(bookingTutor) {
+		t.Fatal("OIDC session not authenticated", current.Code)
+	}
+	if me(f.cookie[bookingTutor]).Code != 401 {
+		t.Fatal("old session not revoked")
+	}
+	r := httptest.NewRequest("POST", "/api/v1/auth/logout", nil)
+	r.AddCookie(appCookie)
+	r.Header.Set("Origin", config.PublicOrigin)
+	loggedOut := httptest.NewRecorder()
+	mux.ServeHTTP(loggedOut, r)
+	if loggedOut.Code != 204 || me(appCookie).Code != 401 {
+		t.Fatal("OIDC logout did not revoke session")
 	}
 }

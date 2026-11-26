@@ -47,8 +47,8 @@ func TestOIDCLoginHTTP(t *testing.T) {
 			login := application.NewOIDCLogin(oidcHTTPProvider{}, store, 5*time.Minute)
 			mux := http.NewServeMux()
 			h.RegisterRoutes(mux)
-			h.RegisterOIDC(mux, login)
-			h.RegisterOIDCCallback(mux, application.NewOIDCCallback(nil, store, "https://idp.example"))
+			h.RegisterOIDC(mux, login, allowOIDCTest)
+			h.RegisterOIDCCallback(mux, protocolAuthentication{application.NewOIDCCallback(nil, store, "https://idp.example")}, "/")
 			r := httptest.NewRequest("GET", "/api/v1/auth/oidc/login", nil)
 			r.Header.Set("Sec-Fetch-Site", "same-origin")
 			w := httptest.NewRecorder()
@@ -112,5 +112,36 @@ func TestOIDCLoginHTTP(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestOIDCInitiationLimits(t *testing.T) {
+	for _, unavailable := range []bool{false, true} {
+		store := &oidcHTTPStore{}
+		h := New(nil, "http://localhost:8080", false, slog.Default())
+		mux := http.NewServeMux()
+		h.RegisterOIDC(mux, application.NewOIDCLogin(oidcHTTPProvider{}, store, time.Minute), func(_ context.Context, peer string) (bool, error) {
+			if peer != "192.0.2.1" {
+				t.Fatal("trusted forwarded peer", peer)
+			}
+			if unavailable {
+				return false, errors.New("private Redis password")
+			}
+			return false, nil
+		})
+		r := httptest.NewRequest("GET", "/api/v1/auth/oidc/login", nil)
+		r.Header.Set("X-Forwarded-For", "198.51.100.9")
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, r)
+		want := 429
+		if unavailable {
+			want = 503
+		}
+		if w.Code != want || store.calls != 0 || len(w.Result().Cookies()) != 0 || strings.Contains(w.Body.String(), "private") {
+			t.Fatal("limit did not fail safely", w.Code)
+		}
+		if !unavailable && w.Header().Get("Retry-After") != "60" {
+			t.Fatal("missing retry advice")
+		}
 	}
 }

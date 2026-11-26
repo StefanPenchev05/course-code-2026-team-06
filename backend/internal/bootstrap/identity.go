@@ -160,8 +160,13 @@ func Run(ctx context.Context, logger *slog.Logger) error {
 			return err
 		}
 		login := application.NewOIDCLogin(provider, sessionredis.NewOIDCTransactions(client), oidcConfig.TransactionTTL)
-		identity.RegisterOIDC(mux, login)
-		identity.RegisterOIDCCallback(mux, application.NewOIDCCallback(provider, sessionredis.NewOIDCTransactions(client), oidcConfig.Issuer))
+		identity.RegisterOIDC(mux, login, sessionredis.NewOIDCLimiter(client).Allow)
+		resolver, err := application.NewOIDCIdentityResolver(postgres.New(pool), oidcConfig.Issuer)
+		if err != nil {
+			return err
+		}
+		authentication := application.NewOIDCAuthentication(application.NewOIDCCallback(provider, sessionredis.NewOIDCTransactions(client), oidcConfig.Issuer), resolver, service)
+		identity.RegisterOIDCCallback(mux, authentication, oidcConfig.SuccessPath())
 	}
 
 	catalogService := catalog.New(catalogpostgres.New(pool))

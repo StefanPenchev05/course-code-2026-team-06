@@ -25,7 +25,11 @@ func New(ctx context.Context, c application.OIDCConfig) (*Provider, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
-	p := &Provider{config: c, client: &http.Client{Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("OIDC discovery redirect rejected") }}}
+	timeout := c.RequestTimeout
+	if timeout == 0 {
+		timeout = 3 * time.Second
+	}
+	p := &Provider{config: c, client: &http.Client{Timeout: timeout, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("OIDC discovery redirect rejected") }}}
 	protocol, err := p.discover(ctx)
 	if err != nil {
 		return nil, errors.New("OIDC discovery failed")

@@ -1,13 +1,15 @@
 package identityhttp
 
 import (
+	"context"
+	"net"
 	"net/http"
 
 	"github.com/StefanPenchev05/course-code-2026-team-06/backend/internal/identity/application"
 )
 
 // RegisterOIDC adds only public login initiation. Legacy routes stay unchanged.
-func (h *Handler) RegisterOIDC(mux *http.ServeMux, login *application.OIDCLogin) {
+func (h *Handler) RegisterOIDC(mux *http.ServeMux, login *application.OIDCLogin, limit func(context.Context, string) (bool, error)) {
 	mux.HandleFunc("GET /api/v1/auth/oidc/login", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		if r.Method != http.MethodGet {
@@ -25,6 +27,20 @@ func (h *Handler) RegisterOIDC(mux *http.ServeMux, login *application.OIDCLogin)
 		}
 		if r.URL.RawQuery != "" {
 			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "OIDC login does not accept query parameters"})
+			return
+		}
+		peer, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil || net.ParseIP(peer) == nil {
+			peer = "unknown"
+		}
+		allowed, err := limit(r.Context(), peer)
+		if err != nil {
+			writeJSON(w, 503, map[string]string{"error": "OIDC authentication unavailable"})
+			return
+		}
+		if !allowed {
+			w.Header().Set("Retry-After", "60")
+			writeJSON(w, 429, map[string]string{"error": "too many authentication attempts"})
 			return
 		}
 		result, err := login.Begin(r.Context())

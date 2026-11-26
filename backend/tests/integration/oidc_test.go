@@ -157,8 +157,7 @@ func TestOIDCLoginInitiation(t *testing.T) {
 	handler := identityhttp.New(nil, config.PublicOrigin, false, slog.Default())
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
-	handler.RegisterOIDC(mux, application.NewOIDCLogin(provider, store, config.TransactionTTL))
-	handler.RegisterOIDCCallback(mux, application.NewOIDCCallback(provider, store, config.Issuer))
+	handler.RegisterOIDC(mux, application.NewOIDCLogin(provider, store, config.TransactionTTL), sessionredis.NewOIDCLimiter(client).Allow)
 	out := httptest.NewRecorder()
 	mux.ServeHTTP(out, httptest.NewRequest("GET", "/api/v1/auth/oidc/login", nil))
 	if out.Code != 302 || len(out.Result().Cookies()) != 1 {

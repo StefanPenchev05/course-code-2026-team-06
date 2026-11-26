@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ type OIDCConfig struct {
 	Issuer, ClientID, RedirectURL, PublicOrigin string
 	ClientSecret                                string
 	TransactionTTL                              time.Duration
+	RequestTimeout                              time.Duration
+	PostLoginPath                               string
 }
 
 // OIDCURL permits cleartext only on literal loopback addresses/localhost.
@@ -54,7 +57,24 @@ func (c OIDCConfig) Validate() error {
 	if c.TransactionTTL < time.Minute || c.TransactionTTL > 10*time.Minute || c.TransactionTTL%time.Second != 0 {
 		return fmt.Errorf("OIDC transaction TTL must be whole seconds from 1m to 10m")
 	}
+	if c.RequestTimeout != 0 && (c.RequestTimeout < time.Second || c.RequestTimeout > 10*time.Second || c.RequestTimeout%time.Second != 0) {
+		return fmt.Errorf("OIDC HTTP timeout must be whole seconds from 1s to 10s")
+	}
+	path := c.SuccessPath()
+	// A fixed, simple same-origin path, never a caller-provided redirect URL.
+	if len(path) > 512 || strings.HasPrefix(path, "//") || !oidcSuccessPath.MatchString(path) {
+		return fmt.Errorf("invalid OIDC post-login path")
+	}
 	return nil
+}
+
+var oidcSuccessPath = regexp.MustCompile(`^/[A-Za-z0-9/_-]*$`)
+
+func (c OIDCConfig) SuccessPath() string {
+	if c.PostLoginPath == "" {
+		return "/"
+	}
+	return c.PostLoginPath
 }
 
 type OIDCTransactions interface {

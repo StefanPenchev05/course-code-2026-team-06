@@ -51,7 +51,9 @@ func callbackResponse(r *http.Request) (application.OIDCResponse, error) {
 	return response, nil
 }
 
-func (h *Handler) RegisterOIDCCallback(mux *http.ServeMux, callback *application.OIDCCallback) {
+func (h *Handler) RegisterOIDCCallback(mux *http.ServeMux, callback interface {
+	Complete(context.Context, application.OIDCResponse, string, string) (application.OIDCAuthenticationResult, error)
+}, destination string) {
 	mux.HandleFunc("GET /api/v1/auth/oidc/callback", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Referrer-Policy", "no-referrer")
@@ -75,7 +77,19 @@ func (h *Handler) RegisterOIDCCallback(mux *http.ServeMux, callback *application
 			writeJSON(w, 400, map[string]string{"error": "invalid authentication response"})
 			return
 		}
-		result, err := callback.Complete(r.Context(), response, cookies[0].Value)
+		previous := ""
+		previousCount := 0
+		for _, cookie := range r.Cookies() {
+			if cookie.Name == h.cookie {
+				previousCount++
+				if previousCount > 1 {
+					writeJSON(w, 400, map[string]string{"error": "invalid authentication response"})
+					return
+				}
+				previous = cookie.Value
+			}
+		}
+		result, err := callback.Complete(r.Context(), response, cookies[0].Value, previous)
 		if result.Consumed {
 			http.SetCookie(w, &http.Cookie{Name: h.oidcCookieName(), Value: "", Path: "/", Secure: h.secure, HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0)})
 		}
@@ -87,6 +101,9 @@ func (h *Handler) RegisterOIDCCallback(mux *http.ServeMux, callback *application
 			if errors.Is(err, domain.ErrOIDCTransaction) {
 				status, message = 400, "invalid authentication response"
 			}
+			if errors.Is(err, domain.ErrForbidden) {
+				status, message = 403, "permission denied"
+			}
 			if errors.Is(err, domain.ErrOIDCUnavailable) {
 				status, message = 503, "OIDC authentication unavailable"
 			}
@@ -94,8 +111,11 @@ func (h *Handler) RegisterOIDCCallback(mux *http.ServeMux, callback *application
 			writeJSON(w, status, map[string]string{"error": message})
 			return
 		}
-		// Stage 3 will bind result.Identity to an authorized Tutti account. Do not
-		// serialize the subject, issue cookies or make /auth/me authenticated here.
-		writeJSON(w, 200, map[string]string{"status": "oidc_identity_verified", "message": "OIDC identity verified; Tutti account linking and sessions are not implemented."})
+		if !domain.ValidOIDCToken(result.Token) || result.TTL < time.Second {
+			writeJSON(w, 503, map[string]string{"error": "OIDC authentication unavailable"})
+			return
+		}
+		h.setCookie(w, result.Token, int(result.TTL/time.Second))
+		http.Redirect(w, r, destination, http.StatusSeeOther)
 	})
 }

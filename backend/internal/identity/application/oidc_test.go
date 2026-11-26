@@ -76,6 +76,7 @@ func TestOIDCConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, change := range []func(*OIDCConfig){
+		func(c *OIDCConfig) { c.RequestTimeout = -time.Second }, func(c *OIDCConfig) { c.RequestTimeout = 11 * time.Second }, func(c *OIDCConfig) { c.PostLoginPath = "//evil.example" }, func(c *OIDCConfig) { c.PostLoginPath = "https://evil.example" }, func(c *OIDCConfig) { c.PostLoginPath = "/\\evil.example" }, func(c *OIDCConfig) { c.PostLoginPath = "/%2f%2fevil.example" }, func(c *OIDCConfig) { c.PostLoginPath = "/\n" },
 		func(c *OIDCConfig) { c.Issuer = "" }, func(c *OIDCConfig) { c.ClientID = "" }, func(c *OIDCConfig) { c.ClientID = " bad" },
 		func(c *OIDCConfig) { c.Issuer = "http://idp.example/realm" }, func(c *OIDCConfig) { c.Issuer = "https://user:password@idp.example/realm" },
 		func(c *OIDCConfig) { c.Issuer += "?issuer=other" }, func(c *OIDCConfig) { c.Issuer += "/" },
