@@ -22,30 +22,32 @@ function localDay(instant: Date): { date: string; isoWeekday: number } {
 test('a tutor manages weekly and one-off free times, and booked time is protected', async ({ page }) => {
   const tutor = await approvedTutor('availability', 'Patient explanations.', 18.5);
 
-  // Setup: one weekly time, created through the real API. The page can't create weekly times yet,
-  // although GET /semesters is now available; creating weekly times still has no UI control.
   const weekly = localDay(new Date(Date.now() + 3 * DAY_MS));
-  const tutorApi = await loggedIn(tutor.email, tutor.password);
-  const semesters = await tutorApi.get('/api/v1/semesters');
-  expect(semesters.status()).toBe(200);
-  expect((await semesters.json()).data).toContainEqual(expect.objectContaining({ id: testCatalog().semesterId }));
-  const rule = await tutorApi.post('/api/v1/tutors/me/availability/rules', {
-    data: {
-      semester_id: testCatalog().semesterId,
-      iso_weekday: weekly.isoWeekday,
-      local_start_time: '14:00',
-      local_end_time: '16:00',
-      time_zone: TIME_ZONE,
-      allowed_mode: 'BOTH',
-    },
-  });
-  expect(rule.status(), await rule.text()).toBe(201);
   const day = WEEKDAYS[weekly.isoWeekday - 1];
+  const tutorApi = await loggedIn(tutor.email, tutor.password);
 
   await page.goto('/login');
   await logIn(page, tutor.email, tutor.password);
   await page.getByRole('link', { name: 'My availability' }).first().click();
   await expect(page.getByRole('heading', { name: 'My availability' })).toBeVisible();
+  await expect(page.getByText('You have no weekly times.')).toBeVisible();
+
+  // Create a weekly time in the browser, choosing this run's semester from GET /semesters (#31).
+  const addRule = page.getByRole('form', { name: 'Add a weekly time' });
+  await addRule.getByLabel('Semester', { exact: true }).selectOption(testCatalog().semesterId);
+  await addRule.getByLabel('Day', { exact: true }).selectOption(String(weekly.isoWeekday));
+  await addRule.getByLabel('From', { exact: true }).fill('14:00');
+  await addRule.getByLabel('Until', { exact: true }).fill('16:00');
+  await addRule.getByLabel('Time zone', { exact: true }).fill(TIME_ZONE);
+  await addRule.getByLabel('Where', { exact: true }).selectOption('BOTH');
+  await addRule.getByRole('button', { name: 'Add weekly time' }).click();
+  await expect(addRule.getByText(/^Added\./)).toBeVisible();
+
+  // The same weekly time again overlaps itself (real 409).
+  await addRule.getByLabel('From', { exact: true }).fill('15:00');
+  await addRule.getByLabel('Until', { exact: true }).fill('17:00');
+  await addRule.getByRole('button', { name: 'Add weekly time' }).click();
+  await expect(addRule.getByRole('alert')).toContainText('This overlaps another free time of yours.');
 
   // Weekly time in its own local time and zone; its occurrences are listed as free times.
   await expect(page.getByText(`Every ${day}, 14:00–16:00 (${TIME_ZONE}) · Online or on site`)).toBeVisible();

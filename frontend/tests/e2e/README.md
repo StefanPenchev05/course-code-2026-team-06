@@ -84,14 +84,14 @@ free time" without depending on screens that don't exist yet.
 
 ## Journeys covered (issue #31)
 
-- An approved tutor has one weekly time, created through the real API in setup (the page can't create
-  weekly times yet, although `GET /semesters` is now available). The test verifies that the semester
-  endpoint returns the provisioned semester. In the browser the tutor sees
-  it in its local time and zone, adds a one-off time, gets the real overlap error, edits the weekly
-  time, skips one weekly date and restores it. A student then books the one-off time (real
-  `POST /sessions`), and removing it is refused with the "a student has a booking" explanation. After the student
-  cancels via the API, the browser removes the one-off time and deletes the weekly rule. Reloads
-  and authenticated API reads verify that both deletions persisted.
+- An approved tutor with no availability opens My availability and **creates a weekly time in the
+  browser**, choosing this run's semester from the real `GET /semesters`; adding an overlapping
+  weekly time gets the real 409. The tutor sees it in its local time and zone, adds a one-off time,
+  gets the real overlap error, edits the weekly time, skips one weekly date and restores it. A
+  student then books the one-off time (real `POST /sessions`), and removing it is refused with the
+  "a student has a booking" explanation. After the student cancels via the API, the browser removes
+  the one-off time and deletes the weekly rule. Reloads and authenticated API reads verify that both
+  deletions persisted.
 
 ## Journeys covered (issue #32)
 

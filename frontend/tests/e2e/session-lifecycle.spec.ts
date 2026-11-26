@@ -49,7 +49,7 @@ test('an ended session is completed by its tutor and remains completed for both 
     })).status()).toBe(200);
     await signIn(page, session.tutor, '/tutor');
     const card = page.getByRole('region', { name: /^Confirmed sessions/ }).getByRole('listitem').filter({ hasText: description });
-    await card.getByRole('button', { name: /as completed$/ }).click();
+    await card.getByRole('button', { name: /^Mark as completed/ }).click(); // name is "Mark as completed: <subject> on <time>" (#59)
     await expect(card.getByText('Did this session take place?')).toBeVisible();
     await card.getByRole('button', { name: 'Yes, it took place' }).click();
     await expect(page.getByText('Marked as completed. The student can now rate the session.')).toBeVisible();
@@ -122,6 +122,9 @@ test('onsite acceptance validates the room and tutor cancellation reaches the st
 
 test('accepting a stale request reports the real conflict and preserves the student cancellation', async ({ page }) => {
   const session = await requestedSession('stale-request');
+  // Keep this tutor's view stale on purpose: with live updates (#91) the cancellation would
+  // otherwise usually remove the request before the tutor can click Accept.
+  await page.routeWebSocket(/\/ws$/, (ws) => void ws.close({ code: 1001, reason: '' }));
   await signIn(page, session.tutor, '/tutor');
   const card = page.getByRole('listitem').filter({ hasText: session.description });
   await card.getByRole('button', { name: /^Accept / }).click();
@@ -132,7 +135,9 @@ test('accepting a stale request reports the real conflict and preserves the stud
     const conflict = page.waitForResponse((response) => response.url().endsWith(`/session-requests/${session.id}/accept`) && response.request().method() === 'POST');
     await card.getByRole('button', { name: 'Accept the session' }).click();
     expect((await conflict).status()).toBe(409);
-    await expect(card.getByRole('alert')).toContainText('This session was changed in the meantime');
+    // After the 409 the list refetches (#91): the request leaves the list and the change is announced.
+    await expect(card).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: /now Cancelled/ })).toBeVisible();
     await page.reload();
     await expect(page.getByText(session.description)).toHaveCount(0);
     const result = await learnerApi.get(`/api/v1/sessions/${session.id}`);

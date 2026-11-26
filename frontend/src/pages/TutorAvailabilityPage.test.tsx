@@ -32,11 +32,17 @@ const RULE = {
   allowed_mode: 'BOTH',
 };
 
+const SEMESTERS = [
+  { id: 'sem-next', name: 'Summer 2031', starts_at: '2031-02-01T00:00:00Z', ends_at: '2031-06-30T00:00:00Z' },
+  { id: 'sem-now', name: 'Winter 2030', starts_at: '2020-09-01T00:00:00Z', ends_at: '2099-01-31T00:00:00Z' },
+];
+
 function mockAvailability(extra: Record<string, (call: MockCall) => Response> = {}) {
   return mockApi({
     'GET /api/v1/auth/me': () => json(200, tutor),
     [`GET ${BASE}`]: () => page([ONE_OFF, WEEKLY]),
     [`GET ${BASE}/rules`]: () => page([RULE]),
+    'GET /api/v1/semesters': () => json(200, { data: SEMESTERS }),
     ...extra,
   });
 }
@@ -170,6 +176,59 @@ describe('TutorAvailabilityPage', () => {
     await user.click(await screen.findByRole('button', { name: /^Restore .*2030/ }));
 
     await waitFor(() => expect(calls.some((c) => c.method === 'DELETE' && c.url.endsWith('/exceptions/2030-01-15'))).toBe(true));
+  });
+
+  it('adds a weekly time for the current semester by default', async () => {
+    const { calls } = mockAvailability({
+      [`POST ${BASE}/rules`]: ({ body }) => json(201, { data: { id: 'r2', ...(body as Record<string, unknown>) } }),
+    });
+    renderPage();
+    const user = userEvent.setup();
+
+    const form = await screen.findByRole('form', { name: 'Add a weekly time' });
+    expect(within(form).getByLabelText('Semester')).toHaveValue('sem-now');
+    await user.selectOptions(within(form).getByLabelText('Day'), '4');
+    await user.type(within(form).getByLabelText('From'), '14:00');
+    await user.type(within(form).getByLabelText('Until'), '16:00');
+    await user.clear(within(form).getByLabelText('Time zone'));
+    await user.type(within(form).getByLabelText('Time zone'), 'Europe/Luxembourg');
+    await user.selectOptions(within(form).getByLabelText('Where'), 'ONLINE');
+    await user.click(within(form).getByRole('button', { name: 'Add weekly time' }));
+
+    expect(await within(form).findByText(/^Added\./)).toBeInTheDocument();
+    expect(calls.find((c) => c.method === 'POST')?.body).toEqual({
+      semester_id: 'sem-now',
+      iso_weekday: 4,
+      local_start_time: '14:00',
+      local_end_time: '16:00',
+      time_zone: 'Europe/Luxembourg',
+      allowed_mode: 'ONLINE',
+    });
+  });
+
+  it('checks the times first and explains an overlap from the server', async () => {
+    const { calls } = mockAvailability({
+      [`POST ${BASE}/rules`]: () => json(409, { error: 'availability overlaps an existing window' }),
+    });
+    renderPage();
+    const user = userEvent.setup();
+
+    const form = await screen.findByRole('form', { name: 'Add a weekly time' });
+    await user.click(within(form).getByRole('button', { name: 'Add weekly time' }));
+    expect(within(form).getByText('Choose a start time.')).toBeInTheDocument();
+    expect(calls.some((c) => c.method === 'POST')).toBe(false);
+
+    await user.type(within(form).getByLabelText('From'), '14:00');
+    await user.type(within(form).getByLabelText('Until'), '15:00');
+    await user.click(within(form).getByRole('button', { name: 'Add weekly time' }));
+    expect(await within(form).findByRole('alert')).toHaveTextContent('This overlaps another free time of yours.');
+  });
+
+  it('says so when no semester is open for planning', async () => {
+    mockAvailability({ 'GET /api/v1/semesters': () => json(200, { data: [] }) });
+    renderPage();
+
+    expect(await screen.findByText(/No semester is open for planning yet/)).toBeInTheDocument();
   });
 
   it('is only for tutors', async () => {

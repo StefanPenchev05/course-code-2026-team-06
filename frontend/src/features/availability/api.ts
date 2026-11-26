@@ -1,5 +1,5 @@
 import { api, type Page } from '../../shared/api/client';
-import type { NewWindow, Rule, RulePatch, SkippedDate, Window } from './types';
+import type { NewRule, NewWindow, Rule, RulePatch, Semester, SkippedDate, Window } from './types';
 
 const BASE = '/tutors/me/availability';
 const id = (value: string) => encodeURIComponent(value);
@@ -13,6 +13,10 @@ export const availabilityApi = {
   removeWindow: (windowId: string) => api.delete(`${BASE}/slots/${id(windowId)}`),
 
   rules: (signal?: AbortSignal) => api.get<Page<Rule>>(`${BASE}/rules`, { query: { limit: 100 }, signal }),
+  /** Creates the rule and its weekly free times until the semester ends. */
+  createRule: (rule: NewRule) => api.post<{ data: Rule }>(`${BASE}/rules`, rule).then((result) => result.data),
+  /** Semesters a tutor can plan in: those that have not ended yet. */
+  semesters: (signal?: AbortSignal) => api.get<{ data: Semester[] }>('/semesters', { signal }).then((result) => result.data),
   updateRule: (ruleId: string, patch: RulePatch) => api.patch<{ data: Rule }>(`${BASE}/rules/${id(ruleId)}`, patch),
   deleteRule: (ruleId: string) => api.delete(`${BASE}/rules/${id(ruleId)}`),
   skippedDates: (ruleId: string, signal?: AbortSignal) =>

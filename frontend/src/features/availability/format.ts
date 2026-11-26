@@ -1,5 +1,5 @@
 import { MODE_LABEL } from '../../shared/utils/datetime';
-import type { Rule } from './types';
+import type { Rule, Semester } from './types';
 
 export const WEEKDAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
 
@@ -35,3 +35,11 @@ export function localInstant(date: string, time: string): Date | null {
   const instant = new Date(`${date}T${time}`);
   return Number.isNaN(instant.getTime()) ? null : instant;
 }
+
+/** The semester running now, or else the next one to start. */
+export function defaultSemester(semesters: Semester[], now = new Date()): string {
+  const running = semesters.find((s) => new Date(s.starts_at) <= now && now < new Date(s.ends_at));
+  const next = [...semesters].sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0];
+  return (running ?? next)?.id ?? '';
+}
+

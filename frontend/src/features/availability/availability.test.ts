@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../../shared/api/client';
 import { availabilityError } from './errors';
-import { localDateText, ruleText } from './format';
+import { defaultSemester, localDateText, ruleText } from './format';
 import type { Rule } from './types';
 import { changedFields, validateOneOff, validateRule } from './validation';
 
@@ -76,5 +76,18 @@ describe('availabilityError', () => {
     expect(availabilityError(new ApiError(422, 'invalid availability: window must fit inside one semester'))).toBe(
       'Window must fit inside one semester',
     );
+  });
+});
+
+describe('defaultSemester', () => {
+  const now = new Date('2030-03-01T12:00:00Z');
+  const winter = { id: 'w', name: 'Winter', starts_at: '2029-09-01T00:00:00Z', ends_at: '2030-02-01T00:00:00Z' };
+  const summer = { id: 's', name: 'Summer', starts_at: '2030-02-15T00:00:00Z', ends_at: '2030-07-01T00:00:00Z' };
+  const autumn = { id: 'a', name: 'Autumn', starts_at: '2030-09-01T00:00:00Z', ends_at: '2031-02-01T00:00:00Z' };
+
+  it('picks the running semester, else the next one', () => {
+    expect(defaultSemester([autumn, summer], now)).toBe('s');
+    expect(defaultSemester([autumn, winter], now)).toBe('w'); // earliest start when none runs
+    expect(defaultSemester([], now)).toBe('');
   });
 });

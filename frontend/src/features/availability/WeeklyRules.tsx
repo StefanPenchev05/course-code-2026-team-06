@@ -3,6 +3,7 @@ import { errorMessage } from '../../shared/api/errors';
 import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
 import { Alert, Button, ConfirmAction, SelectField, Spinner, TextField } from '../../shared/ui';
 import { MODE_LABEL, type SessionMode } from '../../shared/utils/datetime';
+import { AddRuleForm } from './AddRuleForm';
 import { availabilityApi } from './api';
 import { availabilityError } from './errors';
 import { hhmm, localDateText, ruleText, WEEKDAYS } from './format';
@@ -65,6 +66,13 @@ export function WeeklyRules({ reloadKey, onChanged }: WeeklyRulesProps) {
           ))}
         </ul>
       )}
+      <AddRuleForm onAdded={onChanged} />
+      {/* One shared list of time-zone suggestions for the add and edit forms (ids must be unique). */}
+      <datalist id="time-zones">
+        {zoneList().map((zone) => (
+          <option key={zone} value={zone} />
+        ))}
+      </datalist>
     </section>
   );
 }
@@ -200,11 +208,6 @@ function RuleEditor({ rule, onCancel, onSaved }: { rule: Rule; onCancel: () => v
           error={errors.zone}
           hint="The clock times are in this zone, e.g. Europe/Luxembourg."
         />
-        <datalist id="time-zones">
-          {zoneList().map((zone) => (
-            <option key={zone} value={zone} />
-          ))}
-        </datalist>
         <SelectField label="Where" name="mode" value={form.mode} onChange={(e) => update('mode', e.target.value as SessionMode)}>
           {(Object.keys(MODE_LABEL) as SessionMode[]).map((mode) => (
             <option key={mode} value={mode}>

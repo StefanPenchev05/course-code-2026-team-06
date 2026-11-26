@@ -40,3 +40,14 @@ export interface NewWindow {
   ends_at: string;
   allowed_mode: SessionMode;
 }
+
+/** POST /me/availability/rules. Times are "HH:MM" local times in time_zone. */
+export type NewRule = Pick<Rule, 'semester_id' | 'iso_weekday' | 'local_start_time' | 'local_end_time' | 'time_zone' | 'allowed_mode'>;
+
+/** GET /api/v1/semesters (tutors): semesters that have not ended yet. */
+export interface Semester {
+  id: string;
+  name: string;
+  starts_at: string;
+  ends_at: string;
+}
