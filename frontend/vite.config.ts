@@ -14,6 +14,8 @@ export default defineConfig({
     proxy: {
       // changeOrigin stays false so the browser's Origin header reaches the API unchanged.
       '/api': { target: 'http://127.0.0.1:8080', changeOrigin: false },
+      // Realtime gateway (docs/realtime.md). The API checks this Origin too.
+      '/ws': { target: 'ws://127.0.0.1:8080', ws: true, changeOrigin: false },
     },
   },
   test: {

@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useNavigate } from 'react-router';
 import { useAuth } from '../features/auth/AuthContext';
 import { hasRole } from '../features/auth/types';
 import { Button } from '../shared/ui';
+import { RealtimeNotice } from './RealtimeNotice';
 
 export function AppLayout() {
   const { user, logout } = useAuth();
@@ -62,6 +63,7 @@ export function AppLayout() {
           )}
         </nav>
       </header>
+      <RealtimeNotice />
       <main id="main" className="app-main" tabIndex={-1}>
         <Outlet />
       </main>

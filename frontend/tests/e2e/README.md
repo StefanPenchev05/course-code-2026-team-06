@@ -111,6 +111,16 @@ free time" without depending on screens that don't exist yet.
   session can end during a run. Component tests cover that path; the backend's own integration
   tests cover it with a test clock.
 
+## Journeys covered (issue #90, live updates)
+
+- A pending student has the home page open; the coordinator approves the registration through
+  the real API; the page switches to the approved view **by itself**, without a reload (checked),
+  and with never more than one gateway connection open.
+- The test cuts the WebSocket (Playwright passes it through to the real gateway, then closes it
+  and refuses reconnects). The "Live updates are paused" notice appears; the approval happens
+  while disconnected; when the connection is allowed again the page catches up without a reload.
+- The API needs Redis and the realtime settings from `.env.example` (`REALTIME_NAMESPACE`, …).
+
 ## Accessibility and mobile checks (issue #59)
 
 Run them alone with `npm run test:a11y` (same setup as above).

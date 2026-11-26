@@ -102,6 +102,18 @@ Suggested feature folders as the issues land: `features/tutoring`, `features/sch
   for the statuses that matter on that screen.
 - A 401 anywhere logs the user out automatically. You don't need to handle it per page.
 
+**Live updates (realtime, #90)**
+- The app keeps **one** WebSocket to `/ws` while someone is logged in (`app/RealtimeProvider.tsx`,
+  `shared/realtime/`). Messages only say *that* something changed (`booking.changed`,
+  `availability.changed`, …); they carry no data. Always refetch over HTTP.
+- In a screen, use `useLiveRefresh(['booking.changed'], reload)` from `shared/realtime`. It calls
+  `reload` (debounced) when such an event arrives, and after every reconnection, because events
+  sent while disconnected are not replayed. Pass `{ entityId }` to react to one tutor or session only.
+- Never open your own `WebSocket`, never send messages on it, and never show event fields as data.
+  The contract is in `docs/realtime.md` and `docs/realtime-delivery.md`.
+- In development Vite forwards `/ws` to the API (see `vite.config.ts`); the API checks the Origin
+  exactly like for HTTP writes.
+
 **Permissions and privacy**
 - `RequireRole` only hides screens. The server checks every permission, so never rely on the UI for security,
   and never send user IDs, roles or faculty as "who I am" in a request body.
