@@ -121,6 +121,17 @@ free time" without depending on screens that don't exist yet.
   while disconnected; when the connection is allowed again the page catches up without a reload.
 - The API needs Redis and the realtime settings from `.env.example` (`REALTIME_NAMESPACE`, …).
 
+## Journeys covered (issue #91, live booking)
+
+- A tutor and a student in **two separate browsers**. The student books; the request appears on
+  the tutor's Teaching page by itself, with a "New: …" announcement. The tutor accepts; the
+  student's My sessions card turns "Confirmed" with the meeting link. While the tutor is typing a
+  decline reason, another student's request arrives and the typed text is kept; the first student
+  then cancels and the request leaves the tutor's list with "now Cancelled". Neither page reloads.
+- Not covered in the browser: **expiry**. Requests expire after at least an hour (the worker's
+  real clock), longer than a test run. Expiry sends the same `booking.changed` event, which the
+  component tests cover.
+
 ## Accessibility and mobile checks (issue #59)
 
 Run them alone with `npm run test:a11y` (same setup as above).

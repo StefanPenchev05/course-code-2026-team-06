@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
+import { ApiError } from '../../shared/api/client';
 import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
 import { Alert, Button, TextArea } from '../../shared/ui';
 import { browserTimeZone, MODE_LABEL } from '../../shared/utils/datetime';
@@ -13,11 +14,13 @@ const CANCELLABLE: SessionStatus[] = ['REQUESTED', 'ACCEPTED'];
 interface SessionCardProps {
   session: Session;
   onChanged: (session: Session) => void;
+  /** Called when the server says the session changed meanwhile (409), so the list refetches it. */
+  onStale?: () => void;
   timeZone?: string;
 }
 
 /** One session as the viewer sees it: what, when, status, their role, and what they can do. */
-export function SessionCard({ session, onChanged, timeZone = browserTimeZone() }: SessionCardProps) {
+export function SessionCard({ session, onChanged, onStale, timeZone = browserTimeZone() }: SessionCardProps) {
   const [cancelling, setCancelling] = useState(false);
   const when = new Intl.DateTimeFormat(undefined, { timeZone, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
   const until = new Intl.DateTimeFormat(undefined, { timeZone, hour: '2-digit', minute: '2-digit' });
@@ -70,6 +73,7 @@ export function SessionCard({ session, onChanged, timeZone = browserTimeZone() }
         (cancelling ? (
           <CancelForm
             session={session}
+            onStale={onStale}
             onCancel={() => setCancelling(false)}
             onCancelled={(updated) => {
               setCancelling(false);
@@ -90,7 +94,17 @@ export function SessionCard({ session, onChanged, timeZone = browserTimeZone() }
   );
 }
 
-function CancelForm({ session, onCancel, onCancelled }: { session: Session; onCancel: () => void; onCancelled: (session: Session) => void }) {
+function CancelForm({
+  session,
+  onCancel,
+  onCancelled,
+  onStale,
+}: {
+  session: Session;
+  onCancel: () => void;
+  onCancelled: (session: Session) => void;
+  onStale?: () => void;
+}) {
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState<string | undefined>();
   const [formError, setFormError] = useState<string | null>(null);
@@ -113,6 +127,7 @@ function CancelForm({ session, onCancel, onCancelled }: { session: Session; onCa
       onCancelled(await sessionsApi.cancel(session.id, text));
     } catch (error) {
       setFormError(bookingError(error));
+      if (error instanceof ApiError && error.status === 409) onStale?.();
       setSubmitting(false);
       signalFailure();
     }

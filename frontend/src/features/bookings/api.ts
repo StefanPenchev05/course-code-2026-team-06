@@ -4,6 +4,9 @@ import type { BookingRequest, Session, SessionStatus } from './types';
 export const sessionsApi = {
   /** Creates a REQUESTED session; both people's time is reserved until it is declined, expires or is cancelled. */
   request: (booking: BookingRequest) => api.post<{ data: Session }>('/sessions', booking).then((result) => result.data),
+  /** One session the caller takes part in (404 otherwise). */
+  get: (id: string, signal?: AbortSignal) =>
+    api.get<{ data: Session }>(`/sessions/${encodeURIComponent(id)}`, { signal }).then((result) => result.data),
   /** Sessions where the caller is the student or the tutor, sorted by start. */
   mine: (status: SessionStatus | undefined, offset = 0, signal?: AbortSignal) =>
     api.get<Page<Session>>('/sessions/me', { query: { status, limit: 50, offset }, signal }),

@@ -186,3 +186,7 @@ textarea.field__input { resize: vertical; min-height: 5rem; }
 .session__report { margin: 0.5rem 0 0; font-size: 0.9rem; }
 /* Realtime connection notice */
 .realtime-notice { margin: 0; padding: 0.5rem var(--space); background: var(--color-warning-bg); text-align: center; font-size: 0.9rem; }
+
+/* Live update announcements (#91): visible but quiet; empty when nothing changed. */
+.live-announcement { margin: 0 0 var(--space); color: var(--color-muted); font-size: 0.9rem; }
+.live-announcement:empty { margin: 0; }

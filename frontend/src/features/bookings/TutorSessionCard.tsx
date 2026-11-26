@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { ApiError } from '../../shared/api/client';
 import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
 import { Alert, Button, ConfirmAction, TextArea, TextField } from '../../shared/ui';
 import { browserTimeZone, MODE_LABEL } from '../../shared/utils/datetime';
@@ -20,6 +21,8 @@ interface TutorSessionCardProps {
   session: Session;
   /** Called with the updated session after accept, decline or completion. */
   onChanged: (session: Session) => void;
+  /** Called when the server says the session changed meanwhile (409), so the list refetches it. */
+  onStale?: () => void;
   timeZone?: string;
   /** Injected for tests. */
   now?: Date;
@@ -32,7 +35,7 @@ type Panel = 'none' | 'accept' | 'decline';
  * REQUESTED → accept or decline; ACCEPTED → complete once it has ended.
  * Other states (declined, expired, cancelled, completed, no-show) have no actions.
  */
-export function TutorSessionCard({ session, onChanged, timeZone = browserTimeZone(), now }: TutorSessionCardProps) {
+export function TutorSessionCard({ session, onChanged, onStale, timeZone = browserTimeZone(), now }: TutorSessionCardProps) {
   const [panel, setPanel] = useState<Panel>('none');
   const [completeError, setCompleteError] = useState<string | null>(null);
   const when = new Intl.DateTimeFormat(undefined, { timeZone, weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
@@ -45,6 +48,7 @@ export function TutorSessionCard({ session, onChanged, timeZone = browserTimeZon
       onChanged(await sessionsApi.complete(session.id));
     } catch (error) {
       setCompleteError(bookingError(error));
+      if (error instanceof ApiError && error.status === 409) onStale?.();
       throw error;
     }
   }
@@ -76,8 +80,8 @@ export function TutorSessionCard({ session, onChanged, timeZone = browserTimeZon
               </Button>
             </div>
           )}
-          {panel === 'accept' && <AcceptForm session={session} onCancel={() => setPanel('none')} onDone={onChanged} />}
-          {panel === 'decline' && <DeclineForm session={session} onCancel={() => setPanel('none')} onDone={onChanged} />}
+          {panel === 'accept' && <AcceptForm session={session} onCancel={() => setPanel('none')} onDone={onChanged} onStale={onStale} />}
+          {panel === 'decline' && <DeclineForm session={session} onCancel={() => setPanel('none')} onDone={onChanged} onStale={onStale} />}
         </>
       )}
 
@@ -114,7 +118,17 @@ export function TutorSessionCard({ session, onChanged, timeZone = browserTimeZon
   );
 }
 
-function AcceptForm({ session, onCancel, onDone }: { session: Session; onCancel: () => void; onDone: (session: Session) => void }) {
+function AcceptForm({
+  session,
+  onCancel,
+  onDone,
+  onStale,
+}: {
+  session: Session;
+  onCancel: () => void;
+  onDone: (session: Session) => void;
+  onStale?: () => void;
+}) {
   const online = session.mode === 'ONLINE';
   const [value, setValue] = useState('');
   const [fieldError, setFieldError] = useState<string | undefined>();
@@ -147,6 +161,7 @@ function AcceptForm({ session, onCancel, onDone }: { session: Session; onCancel:
       setFormError(bookingError(error));
       setSubmitting(false);
       signalFailure();
+      if (error instanceof ApiError && error.status === 409) onStale?.();
     }
   }
 
@@ -181,7 +196,17 @@ function AcceptForm({ session, onCancel, onDone }: { session: Session; onCancel:
   );
 }
 
-function DeclineForm({ session, onCancel, onDone }: { session: Session; onCancel: () => void; onDone: (session: Session) => void }) {
+function DeclineForm({
+  session,
+  onCancel,
+  onDone,
+  onStale,
+}: {
+  session: Session;
+  onCancel: () => void;
+  onDone: (session: Session) => void;
+  onStale?: () => void;
+}) {
   const [reason, setReason] = useState('');
   const [reasonError, setReasonError] = useState<string | undefined>();
   const [formError, setFormError] = useState<string | null>(null);
@@ -205,6 +230,7 @@ function DeclineForm({ session, onCancel, onDone }: { session: Session; onCancel
       setFormError(bookingError(error));
       setSubmitting(false);
       signalFailure();
+      if (error instanceof ApiError && error.status === 409) onStale?.();
     }
   }
 

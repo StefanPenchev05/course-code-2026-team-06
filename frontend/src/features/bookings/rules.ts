@@ -75,7 +75,7 @@ export function bookingError(error: unknown): string {
       return 'You or the tutor already have a session at this time. Choose another time.';
     }
     if (/expired/i.test(error.message)) return 'This request has expired: the answer deadline has passed.';
-    return 'This session was changed in the meantime (for example answered or cancelled). Reload the page to see its status.';
+    return 'This session was changed in the meantime (for example answered or cancelled). The list now shows its current status.';
   }
   if (error instanceof ApiError && error.status === 422) {
     const message = error.message;
