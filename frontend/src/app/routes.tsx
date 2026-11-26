@@ -18,6 +18,8 @@ import { TutorActivityPage } from '../pages/TutorActivityPage';
 import { CoordinatorHomePage } from '../pages/CoordinatorHomePage';
 import { CoordinatorTutorPage } from '../pages/CoordinatorTutorPage';
 import { CoordinatorTutorsPage } from '../pages/CoordinatorTutorsPage';
+import { CoordinatorVerificationPage } from '../pages/CoordinatorVerificationPage';
+import { CoordinatorVerificationsPage } from '../pages/CoordinatorVerificationsPage';
 
 /**
  * All screens of the app. Replace a ComingSoonPage with the real page when
@@ -65,6 +67,8 @@ export const routes: RouteObject[] = [
               { path: 'coordinator', element: <CoordinatorHomePage /> },
               { path: 'coordinator/tutors', element: <CoordinatorTutorsPage /> },
               { path: 'coordinator/tutors/:id', element: <CoordinatorTutorPage /> },
+              { path: 'coordinator/verifications', element: <CoordinatorVerificationsPage /> },
+              { path: 'coordinator/verifications/:id', element: <CoordinatorVerificationPage /> },
             ],
           },
         ],

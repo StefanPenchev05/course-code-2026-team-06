@@ -11,6 +11,9 @@ export function CoordinatorHomePage() {
       <h2>Tools</h2>
       <ul>
         <li>
+          <Link to="/coordinator/verifications">Student registrations</Link>: approve or reject new students of your faculty.
+        </li>
+        <li>
           <Link to="/coordinator/tutors">Tutors</Link>: activity, schedules and feedback of each tutor; cancel sessions for policy
           reasons.
         </li>
