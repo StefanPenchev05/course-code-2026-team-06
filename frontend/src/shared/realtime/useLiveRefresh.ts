@@ -3,8 +3,8 @@ import { useRealtime } from './context';
 import type { EventType } from './protocol';
 
 interface LiveRefreshOptions {
-  /** Only react to events about this entity (e.g. one tutor); events for others are ignored. */
-  entityId?: string;
+  /** Only react to events about this entity, or one of these (e.g. the visible tutors). */
+  entityId?: string | readonly string[];
   /** Wait this long after the last trigger before reloading, so a burst causes one reload. */
   debounceMs?: number;
 }
@@ -27,6 +27,7 @@ export function useLiveRefresh(types: readonly EventType[], reload: () => void, 
 
   // Stable string so the subscription only changes when the list of types changes.
   const typeKey = [...types].sort().join(',');
+  const entityKey = entityId === undefined ? '' : ([] as string[]).concat(entityId).sort().join(',');
 
   useEffect(() => {
     if (!client) return;
@@ -42,7 +43,8 @@ export function useLiveRefresh(types: readonly EventType[], reload: () => void, 
       .filter(Boolean)
       .map((type) =>
         client.subscribe(type as EventType, (event) => {
-          if (!entityId || !('entityId' in event) || !event.entityId || event.entityId === entityId) schedule();
+          const wanted = entityKey ? entityKey.split(',') : null;
+          if (!wanted || !('entityId' in event) || !event.entityId || wanted.includes(event.entityId)) schedule();
         }),
       );
     const offUnknown = client.subscribe('*', (event) => {
@@ -54,7 +56,7 @@ export function useLiveRefresh(types: readonly EventType[], reload: () => void, 
       if (timer.current !== null) clearTimeout(timer.current);
       timer.current = null;
     };
-  }, [client, typeKey, entityId, debounceMs]);
+  }, [client, typeKey, entityKey, debounceMs]);
 
   // After a reconnection (not the connection that existed when the view mounted), refetch.
   useEffect(() => {

@@ -3,3 +3,4 @@ export { gatewayUrl, RealtimeClient, type ConnectionStatus } from './client';
 export { RealtimeContext, useRealtime, type RealtimeState } from './context';
 export { EVENT_TYPES, parseEvent, type EventType, type RealtimeEvent } from './protocol';
 export { useLiveRefresh } from './useLiveRefresh';
+export { MAX_WATCHED_TUTORS, useAvailabilityWatch } from './useAvailabilityWatch';

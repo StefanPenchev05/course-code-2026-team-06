@@ -29,13 +29,18 @@ interface BookingFormProps {
   subjectId?: string | null;
   onCancel: () => void;
   onBooked: (session: Session) => void;
+  /**
+   * The chosen time is no longer in the tutor's free times (live update, #92). The form stays
+   * open with what was typed, but can't be sent until another free time is chosen.
+   */
+  unavailable?: boolean;
   timeZone?: string;
   /** Injected for tests. */
   now?: Date;
 }
 
 /** Step 2 of booking: choose subject, purpose, length, start, mode and describe the need; then send. */
-export function BookingForm({ tutorName, offerings, window, subjectId, onCancel, onBooked, timeZone = browserTimeZone(), now }: BookingFormProps) {
+export function BookingForm({ tutorName, offerings, window, subjectId, onCancel, onBooked, unavailable = false, timeZone = browserTimeZone(), now }: BookingFormProps) {
   const [offeringId, setOfferingId] = useState(
     () => offerings.find((offering) => offering.subject_id === subjectId)?.id ?? offerings[0]?.id ?? '',
   );
@@ -111,6 +116,11 @@ export function BookingForm({ tutorName, offerings, window, subjectId, onCancel,
             <Alert>{formError}</Alert>
           </div>
         )}
+        {unavailable && (
+          <Alert kind="warning" title="This time is no longer free">
+            The tutor’s free times just changed. Choose another free time above; what you typed here is kept.
+          </Alert>
+        )}
         {offerings.length > 1 && (
           <SelectField label="Subject" name="offering" value={offeringId} onChange={(e) => setOfferingId(e.target.value)}>
             {offerings.map((offering) => (
@@ -184,7 +194,7 @@ export function BookingForm({ tutorName, offerings, window, subjectId, onCancel,
           hint="For example the topic, exercise or exam. Only you and the tutor see this."
         />
         <div className="button-row">
-          <Button type="submit" loading={submitting} disabled={starts.length === 0}>
+          <Button type="submit" loading={submitting} disabled={starts.length === 0 || unavailable}>
             Send request
           </Button>
           <Button variant="secondary" onClick={onCancel} disabled={submitting}>

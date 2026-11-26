@@ -14,19 +14,21 @@ type Load = { key: string; status: 'ok'; windows: Window[]; hasMore: boolean } |
 interface UpcomingWindowsProps {
   /** Changes whenever another part of the page changed availability, to reload this list. */
   reloadKey: number;
+  /** Changes on live updates (#92): refetch without hiding this list's own confirmation. */
+  liveKey?: number;
   /** Called after a window was removed, so the rest of the page can reload too. */
   onChanged: () => void;
   timeZone?: string;
 }
 
 /** The tutor's published windows for the next four weeks (owner view: booked time is included). */
-export function UpcomingWindows({ reloadKey, onChanged, timeZone = browserTimeZone() }: UpcomingWindowsProps) {
+export function UpcomingWindows({ reloadKey, liveKey = 0, onChanged, timeZone = browserTimeZone() }: UpcomingWindowsProps) {
   const [attempt, setAttempt] = useState(0);
   const [load, setLoad] = useState<Load | null>(null);
   const [removeErrors, setRemoveErrors] = useState<Record<string, string>>({});
   // A notice belongs to the change that caused it; any later change on the page hides it.
   const [notice, setNotice] = useState<{ text: string; reloadKey: number } | null>(null);
-  const key = `${reloadKey}#${attempt}`;
+  const key = `${reloadKey}#${attempt}#${liveKey}`;
 
   useEffect(() => {
     const controller = new AbortController();

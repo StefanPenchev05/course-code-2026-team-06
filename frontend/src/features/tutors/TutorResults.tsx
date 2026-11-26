@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router';
+import { MAX_WATCHED_TUTORS, useAvailabilityWatch, useLiveRefresh } from '../../shared/realtime';
 import { Alert, Button, Spinner } from '../../shared/ui';
-import { tutorsApi } from './api';
+import { PAGE_SIZE, tutorsApi } from './api';
 import { searchErrorMessage } from './errors';
 import { ratingText } from './format';
 import type { TutorMatch, TutorSearchFilters } from './types';
@@ -29,6 +30,35 @@ export function TutorResults({ filters }: { filters: TutorSearchFilters }) {
     );
     return () => controller.abort();
   }, [key]);
+
+  /**
+   * Live refresh (#92): when a visible tutor's availability or rating changes, refetch the
+   * same number of results in the background; the list stays on screen meanwhile.
+   */
+  const shown = useRef<Results | null>(null);
+  useEffect(() => {
+    shown.current = results;
+  }, [results]);
+  const refresh = useCallback(async () => {
+    const before = shown.current;
+    if (before?.status !== 'ok' || before.key !== key) return;
+    try {
+      const filtersNow = JSON.parse(key) as TutorSearchFilters;
+      const items: TutorMatch[] = [];
+      let hasMore = true;
+      while (hasMore && items.length < Math.max(before.items.length, PAGE_SIZE)) {
+        const page = await tutorsApi.search({ ...filtersNow, offset: items.length });
+        items.push(...page.data);
+        hasMore = page.pagination.has_more;
+      }
+      if (shown.current?.key === key) setResults({ key, status: 'ok', items, hasMore });
+    } catch {
+      // Keep what is shown; the next event or reconnection tries again.
+    }
+  }, [key]);
+  const visibleTutors = results?.key === key && results.status === 'ok' ? results.items.slice(0, MAX_WATCHED_TUTORS).map((t) => t.id) : [];
+  useAvailabilityWatch(visibleTutors, () => void refresh());
+  useLiveRefresh(['availability.changed', 'activity.changed'], () => void refresh(), { entityId: visibleTutors, debounceMs: 500 });
 
   const current = results?.key === key ? results : null;
   if (!current) return <Spinner label="Finding tutors…" />;

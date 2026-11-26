@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { errorMessage } from '../../shared/api/errors';
+import { useAvailabilityWatch, useLiveRefresh } from '../../shared/realtime';
 import { Alert, Button, Spinner } from '../../shared/ui';
 import { tutorsApi } from './api';
 import { browserTimeZone, groupByDay, MODE_LABEL, timeRange } from '../../shared/utils/datetime';
@@ -9,7 +10,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const WINDOW_DAYS = 14;
 const MAX_PAGES = 5; // up to 500 intervals per window; more than enough for two weeks
 
-type Load = { key: string; status: 'ok'; slots: FreeSlot[] } | { key: string; status: 'error'; message: string };
+type Load = { key: string; base: string; status: 'ok'; slots: FreeSlot[] } | { key: string; base: string; status: 'error'; message: string };
 
 async function loadWindow(tutorId: string, from: Date, to: Date, signal: AbortSignal): Promise<FreeSlot[]> {
   const slots: FreeSlot[] = [];
@@ -27,6 +28,8 @@ interface FreeTimesProps {
   onSelect?: (slot: FreeSlot) => void;
   /** Reload after a booking took some of the free time. */
   reloadKey?: number;
+  /** Called with every freshly loaded list (also live updates), e.g. to re-check a chosen time. */
+  onSlots?: (slots: FreeSlot[]) => void;
   /** Injected for tests; defaults to now and the browser's time zone. */
   now?: Date;
   timeZone?: string;
@@ -36,7 +39,7 @@ interface FreeTimesProps {
  * The tutor's free time, two weeks at a time. This is a snapshot: the booking
  * step (#32) re-checks availability on the server.
  */
-export function FreeTimes({ tutorId, onSelect, reloadKey = 0, now, timeZone = browserTimeZone() }: FreeTimesProps) {
+export function FreeTimes({ tutorId, onSelect, reloadKey = 0, onSlots, now, timeZone = browserTimeZone() }: FreeTimesProps) {
   const [start] = useState(() => now ?? new Date());
   const [windowIndex, setWindowIndex] = useState(0);
   const [attempt, setAttempt] = useState(0);
@@ -44,22 +47,36 @@ export function FreeTimes({ tutorId, onSelect, reloadKey = 0, now, timeZone = br
 
   const from = new Date(start.getTime() + windowIndex * WINDOW_DAYS * DAY_MS);
   const to = new Date(from.getTime() + WINDOW_DAYS * DAY_MS);
-  const key = `${tutorId}#${from.toISOString()}#${attempt}#${reloadKey}`;
+  // Live updates (#92): bump `live` to refetch, but keep showing the current list meanwhile.
+  const [live, setLive] = useState(0);
+  const base = `${tutorId}#${from.toISOString()}#${attempt}#${reloadKey}`;
+  const key = `${base}#${live}`;
+  const bump = () => setLive((n) => n + 1);
+  useAvailabilityWatch([tutorId], bump);
+  useLiveRefresh(['availability.changed'], bump, { entityId: tutorId });
+  const slotsCallback = useRef(onSlots);
+  useEffect(() => {
+    slotsCallback.current = onSlots;
+  });
 
   useEffect(() => {
     const controller = new AbortController();
     const windowStart = new Date(start.getTime() + windowIndex * WINDOW_DAYS * DAY_MS);
     const windowEnd = new Date(windowStart.getTime() + WINDOW_DAYS * DAY_MS);
     loadWindow(tutorId, windowStart, windowEnd, controller.signal).then(
-      (slots) => setLoad({ key, status: 'ok', slots }),
+      (slots) => {
+        setLoad({ key, base, status: 'ok', slots });
+        slotsCallback.current?.(slots);
+      },
       (error: unknown) => {
-        if (!controller.signal.aborted) setLoad({ key, status: 'error', message: errorMessage(error) });
+        if (!controller.signal.aborted) setLoad({ key, base, status: 'error', message: errorMessage(error) });
       },
     );
     return () => controller.abort();
-  }, [tutorId, start, windowIndex, key]);
+  }, [tutorId, start, windowIndex, key, base]);
 
-  const current = load?.key === key ? load : null;
+  // Same tutor and two weeks: keep the shown list during a live refetch (no spinner flash).
+  const current = load?.base === base ? load : null;
   const range = new Intl.DateTimeFormat(undefined, { timeZone, day: 'numeric', month: 'long' });
 
   return (

@@ -175,6 +175,15 @@ and other browser engines are not exercised here.
   real clock), longer than a test run. Expiry sends the same `booking.changed` event, which the
   component tests cover.
 
+## Journeys covered (issue #92, live availability)
+
+- A student has a tutor's profile open (it registers a real availability watch) while the tutor uses
+  My availability in another browser. A one-off time the tutor adds appears for the student by
+  itself. The student opens the booking form and types; another student books that time first:
+  the form says "This time is no longer free" (never who took it), keeps the typed text and can't be
+  sent, and the time leaves the list. When that booking is cancelled the time is free again. When
+  the tutor removes it, it disappears for the student; the tutor's own "Removed." stays. No reloads.
+
 ## Accessibility and mobile checks (issue #59)
 
 Run them alone with `npm run test:a11y` (same setup as above).

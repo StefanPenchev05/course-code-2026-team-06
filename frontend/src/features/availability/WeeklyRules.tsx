@@ -14,6 +14,8 @@ type Load<T> = { key: string; status: 'ok'; items: T[] } | { key: string; status
 
 interface WeeklyRulesProps {
   reloadKey: number;
+  /** Changes on live updates (#92): refetch, keeping open panels and editors. */
+  liveKey?: number;
   onChanged: () => void;
 }
 
@@ -21,10 +23,10 @@ interface WeeklyRulesProps {
  * The tutor's weekly times. Times are local clock times in each rule's own
  * time zone, so "14:00 Europe/Luxembourg" stays 14:00 across daylight saving.
  */
-export function WeeklyRules({ reloadKey, onChanged }: WeeklyRulesProps) {
+export function WeeklyRules({ reloadKey, liveKey = 0, onChanged }: WeeklyRulesProps) {
   const [attempt, setAttempt] = useState(0);
   const [load, setLoad] = useState<Load<Rule> | null>(null);
-  const key = `${reloadKey}#${attempt}`;
+  const key = `${reloadKey}#${attempt}#${liveKey}`;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -62,7 +64,7 @@ export function WeeklyRules({ reloadKey, onChanged }: WeeklyRulesProps) {
       {current?.status === 'ok' && current.items.length > 0 && (
         <ul className="card-list">
           {current.items.map((rule) => (
-            <RuleItem key={rule.id} rule={rule} onChanged={onChanged} />
+            <RuleItem key={rule.id} rule={rule} onChanged={onChanged} version={`${reloadKey}#${liveKey}`} />
           ))}
         </ul>
       )}
@@ -77,7 +79,7 @@ export function WeeklyRules({ reloadKey, onChanged }: WeeklyRulesProps) {
   );
 }
 
-function RuleItem({ rule, onChanged }: { rule: Rule; onChanged: () => void }) {
+function RuleItem({ rule, onChanged, version }: { rule: Rule; onChanged: () => void; version: string }) {
   const [editing, setEditing] = useState(false);
   const [showSkipped, setShowSkipped] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -124,7 +126,7 @@ function RuleItem({ rule, onChanged }: { rule: Rule; onChanged: () => void }) {
             />
           </div>
           {error && <Alert>{error}</Alert>}
-          {showSkipped && <SkippedDates rule={rule} onChanged={onChanged} />}
+          {showSkipped && <SkippedDates rule={rule} onChanged={onChanged} version={version} />}
         </>
       )}
     </li>
@@ -228,12 +230,13 @@ function RuleEditor({ rule, onCancel, onSaved }: { rule: Rule; onCancel: () => v
   );
 }
 
-function SkippedDates({ rule, onChanged }: { rule: Rule; onChanged: () => void }) {
+function SkippedDates({ rule, onChanged, version }: { rule: Rule; onChanged: () => void; version: string }) {
   const [attempt, setAttempt] = useState(0);
   const [load, setLoad] = useState<Load<SkippedDate> | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [restoring, setRestoring] = useState<string | null>(null);
-  const key = `${rule.id}#${attempt}`;
+  // `version` changes when the page reloads (own change or live update): refetch the skipped dates too.
+  const key = `${rule.id}#${attempt}#${version}`;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -260,7 +263,8 @@ function SkippedDates({ rule, onChanged }: { rule: Rule; onChanged: () => void }
     }
   }
 
-  const current = load?.key === key ? load : null;
+  // Same rule: keep the shown dates while refetching (no spinner flash on live updates).
+  const current = load?.key.startsWith(`${rule.id}#`) ? load : null;
   if (!current) return <Spinner label="Loading skipped dates…" />;
   if (current.status === 'error') return <Alert>{current.message}</Alert>;
   if (current.items.length === 0) return <p className="muted">No skipped dates.</p>;

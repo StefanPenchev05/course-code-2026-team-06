@@ -109,6 +109,9 @@ Suggested feature folders as the issues land: `features/tutoring`, `features/sch
 - In a screen, use `useLiveRefresh(['booking.changed'], reload)` from `shared/realtime`. It calls
   `reload` (debounced) when such an event arrives, and after every reconnection, because events
   sent while disconnected are not replayed. Pass `{ entityId }` to react to one tutor or session only.
+- Public views of a tutor (profile, search results) must also call `useAvailabilityWatch(tutorIds)`,
+  or the server won't send that tutor's `availability.changed` to this user (max. 32 tutors; the
+  hook registers, renews every 5 minutes and re-registers after reconnecting).
 - Never open your own `WebSocket`, never send messages on it, and never show event fields as data.
   The contract is in `docs/realtime.md` and `docs/realtime-delivery.md`.
 - In development Vite forwards `/ws` to the API (see `vite.config.ts`); the API checks the Origin

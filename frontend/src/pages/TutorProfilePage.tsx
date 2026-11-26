@@ -20,6 +20,12 @@ export function TutorProfilePage() {
   const [load, setLoad] = useState<Load | null>(null);
   // Booking (#32): step 1 picks a free time, step 2 fills in the form, step 3 sends it.
   const [chosen, setChosen] = useState<FreeSlot | null>(null);
+  // The chosen time disappeared from the tutor's free times (live update, #92).
+  const [unavailable, setUnavailable] = useState(false);
+  const chosenRef = useRef<FreeSlot | null>(null);
+  useEffect(() => {
+    chosenRef.current = chosen;
+  }, [chosen]);
   const [booked, setBooked] = useState<Session | null>(null);
   const [freeTimesVersion, setFreeTimesVersion] = useState(0);
   const bookedRef = useRef<HTMLDivElement>(null);
@@ -105,16 +111,32 @@ export function TutorProfilePage() {
         reloadKey={freeTimesVersion}
         onSelect={(slot) => {
           setBooked(null);
+          setUnavailable(false);
           setChosen(slot);
+        }}
+        onSlots={(slots) => {
+          // Re-check an open booking form against the fresh free times. Never claim the time was
+          // booked by someone: the server only says it is no longer free.
+          const current = chosenRef.current;
+          if (!current) return;
+          const start = new Date(current.starts_at).getTime();
+          const same = slots.filter((slot) => slot.id === current.id);
+          const fragment =
+            same.find((slot) => new Date(slot.starts_at).getTime() <= start && start < new Date(slot.ends_at).getTime()) ??
+            same.find((slot) => new Date(slot.ends_at).getTime() > start);
+          setUnavailable(!fragment);
+          if (fragment) setChosen(fragment);
         }}
       />
 
       {chosen && (
         <BookingForm
-          key={`${chosen.id}-${chosen.starts_at}`}
+          // One form while booking this tutor: switching times keeps what was typed.
+          key="booking"
           tutorName={profile.name}
           offerings={profile.offerings}
           window={chosen}
+          unavailable={unavailable}
           subjectId={searchedSubject}
           onCancel={() => setChosen(null)}
           onBooked={(session) => {
