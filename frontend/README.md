@@ -158,7 +158,7 @@ Milestone **M7 – Frontend MVP**. Ownership below is a proposal. Confirm it, th
 | – | #54 | Coordinator no-show adjudication | Anastasiia | ✅ |
 | – | #52 / #53 | Report a problem, coordinator issue inbox | Anastasiia | ✅ (merged to `main`) |
 | – | #35 | Remaining coordinator screens (monitoring, policy cancellation) | Anastasiia | ✅ (merged to `main`) |
-| – | #56 | Violation flags and suspension | Anastasiia | ❌ blocked on #25, #26, #48, #49 |
+| – | #56 | Violation flags and suspension | Anastasiia | ✅ (#25, #26, #48, #49 merged to `main`) |
 | last | #59 | Accessibility and mobile checks | both | – |
 | later | #68 | Uni.lu SSO login | Nicolle | ❌ blocked on #46 (university contract) |
 
@@ -219,3 +219,16 @@ doesn't change it; Stefan owns CI, so agree changes to it with him.
 | Already decided or no longer allowed (409) shows the current state; another faculty's report (404) is explained | `NoShowReview.tsx` |
 | Tests | `features/noShowReports/NoShowReports.test.tsx` and `rules.test.ts`. They use the mocked API, so they are component tests, not integration evidence. |
 | Known limit | The API gives only user and session IDs, so the screens show short references, not names or session details. |
+
+---
+
+## 9. Status of #56 (flags and suspension)
+
+| What it covers | Where |
+|---|---|
+| Flags stored for the coordinator's faculty, newest first: violation count, semester and current suspension state; refreshes live on `coordination.changed` | `features/accountDiscipline/FlaggedList.tsx` on `/coordinator/flags` |
+| Account page: latest suspension decision by this faculty, suspend (asks a second time) or reinstate with a required private reason (1–2000 UTF-8 bytes); the page explains the effects | `features/accountDiscipline/AccountReview.tsx` on `/coordinator/users/:id` |
+| Account history by category (suspension decisions, violations, flags), only events recorded for this faculty | `features/accountDiscipline/AccountHistory.tsx` |
+| Only the current home faculty may decide (404 explained); a state that changed meanwhile (409) reloads the page | `AccountReview.tsx`, `rules.ts` |
+| Tests | `features/accountDiscipline/Discipline.test.tsx` and `rules.test.ts`. They use the mocked API, so they are component tests, not integration evidence; a real-backend journey is still to be added. |
+| Known limits | The API gives only IDs, so accounts, sessions and semesters show as short references. There is no account search: an account is reached from its flag. The current state shown is the latest decision recorded by this faculty. The account page doesn't refresh live, so a reason being typed is never lost. |
