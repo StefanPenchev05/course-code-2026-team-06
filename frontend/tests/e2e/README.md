@@ -23,7 +23,16 @@ PostgreSQL and Redis. Nothing is mocked, so a passing run is real frontend-to-ba
      DATABASE_URL="$DATABASE_URL" go -C backend run ./cmd/api
    ```
 
-3. In `frontend/`, point the tests at the same database and run them. Playwright starts Vite itself
+3. Optional, for the expiry journey: start the worker the same way, with a fast expiry check and a
+   loopback mail server address (mail then fails and is retried, which is fine here):
+
+   ```sh
+   WORKER_EXPIRATION_INTERVAL=1s SMTP_HOST=127.0.0.1 SMTP_PORT=2525 SMTP_FROM=e2e@example.test \
+     SMTP_TLS_MODE=plain DATABASE_URL="$DATABASE_URL" go -C backend run ./cmd/worker
+   ```
+
+   and add `E2E_WORKER=1` to the command below.
+4. In `frontend/`, point the tests at the same database and run them. Playwright starts Vite itself
    (or reuses one already running on port 5173):
 
    ```sh
@@ -59,6 +68,7 @@ free time" without depending on screens that don't exist yet.
 | `E2E_BASE_URL` | `http://localhost:5173` | Where the frontend runs; must equal the API's `PUBLIC_ORIGIN` |
 | `E2E_EMAIL_DOMAIN` | `example.test` | A domain listed in the API's `UNIVERSITY_EMAIL_DOMAINS` |
 | `E2E_OIDC_ISSUER` | (empty) | Only if the API runs with `OIDC_ENABLED=true`: its issuer, e.g. `http://localhost:8180/realms/tutti-demo` (#68) |
+| `E2E_WORKER` | (empty) | `1` when the Tutti worker runs on the same database, so the expiry journey runs (#94). Otherwise it is skipped. |
 
 The journeys log in through the **development test-account form** on `/login` (legacy password
 login). Release builds don't have that form; they only offer "Sign in with University of
@@ -151,11 +161,9 @@ E2E_DATABASE_URL="$DATABASE_URL" npm run test:e2e -- --repeat-each=2
 
 No requests are intercepted or fulfilled by a fake API. API helpers deliberately bypass only
 screens outside the journey's scope. Existing unit/component mocks remain in the separate suite.
-The current implemented screens are account entry/verification, tutor discovery/profile, My
-sessions, tutor availability and Teaching; all have real-backend journeys. Tutor applications and
-coordinator routes remain placeholder pages, and weekly-rule creation has no UI yet. These tests
-do not claim those features, feedback submission, email delivery, OIDC, or WebSocket recovery are
-covered. The unrelated-user check uses the same faculty; cross-faculty authorization remains the
+Since this paragraph was first written, tutor applications, coordinator screens and live
+updates were built; their browser journeys are listed in the sections below (#90–#94). Email
+delivery and a complete OIDC login are still not covered here. The unrelated-user check uses the same faculty; cross-faculty authorization remains the
 backend integration suite's responsibility. Chromium desktop is the configured browser; mobile
 and other browser engines are not exercised here.
 
@@ -176,9 +184,7 @@ and other browser engines are not exercised here.
   student's My sessions card turns "Confirmed" with the meeting link. While the tutor is typing a
   decline reason, another student's request arrives and the typed text is kept; the first student
   then cancels and the request leaves the tutor's list with "now Cancelled". Neither page reloads.
-- Not covered in the browser: **expiry**. Requests expire after at least an hour (the worker's
-  real clock), longer than a test run. Expiry sends the same `booking.changed` event, which the
-  component tests cover.
+- Expiry is covered by `live-sessions.spec.ts` (#94) when the worker runs (`E2E_WORKER=1`).
 
 ## Journeys covered (issue #92, live availability)
 
@@ -189,6 +195,55 @@ and other browser engines are not exercised here.
   sent, and the time leaves the list. When that booking is cancelled the time is free again. When
   the tutor removes it, it disappears for the student; the tutor's own "Removed." stays. No reloads.
   
+## Journeys covered (issue #94, live updates across browsers)
+
+Every journey opens two or more separate browsers (or tabs) against the real API, worker,
+PostgreSQL, Redis and `/ws` gateway, and checks that the change shows up **without a reload or a
+click**. Nothing sleeps: each wait is a visible-state assertion or `waitUntilLive()`, which waits
+for `<html data-live="open">` (set by `RealtimeProvider`) so a change is made only once the
+receiving page is listening.
+
+`live-coordination.spec.ts`:
+- A student applies to tutor; the coordinator's open queue and the student's own page show it.
+  The coordinator approves in a second browser; the queue drops it, and the student's page shows
+  the decision and the new Teaching link (role change).
+- **Faculty isolation:** a second faculty with its own coordinator is created for the test. A
+  problem report in each faculty appears only in that faculty's open inbox, and the other
+  coordinator's socket never even receives its event (the received WebSocket frames are checked).
+
+`live-sessions.spec.ts`:
+- The tutor declines; the student's list drops the request with "now Declined". A third,
+  unrelated student's open browser receives no event about that session.
+- **Expiry:** a request whose real deadline passes 30 seconds later (`staleRequest()` in
+  `history-fixture.ts`, inserted like the history fixture) is expired by the **real worker**;
+  both browsers drop it with "now Expired". Skipped unless `E2E_WORKER=1`.
+- **Lost connection:** the gateway socket is cut and reconnects are refused; "Live updates are
+  paused" appears; a request is sent meanwhile (its event is never replayed). When the network is
+  back the page catches up over HTTP: the request appears **once**, with **one** "New:" line.
+- **Navigation:** a request sent while the tutor switches pages is there exactly once when they come
+  back, and the next one arrives live on the newly opened page.
+
+`live-access.spec.ts` (the gateway re-checks quiet sockets every 15 s, so these allow up to 45 s):
+- **Two tabs:** logging out in one tab ends the session in the other tab by itself ("Your session
+  ended"), and the protected page is gone.
+- **Expired session:** the server forgets the session (real logout with the same cookie, outside
+  the browser); the open page ends by itself.
+- **Suspension while offline:** the coordinator suspends the student while the browser's live
+  connection is down; after reconnecting the page shows "This account can't be used right now",
+  not the old protected page, also after a reload.
+
+Already covered elsewhere: creation, acceptance and cancellation (`live-booking.spec.ts`, #91),
+availability editing (`live-availability.spec.ts`, #92), live approval and reconnect
+(`realtime.spec.ts`, #90).
+
+## Continuous integration (#36, #94)
+
+`.github/workflows/e2e.yml` runs **all** journeys in this folder on every push to `main` and
+`features/**` and on pull requests that touch `frontend/` or `backend/`. It starts PostgreSQL 17 and
+Redis as services, applies the migrations, builds and starts the API and the worker with the
+settings above (`E2E_WORKER=1`), installs Chromium and runs `npm run test:e2e`. A failed run keeps
+the Playwright report, traces and the API and worker logs as a downloadable artifact.
+
 ## Journeys covered (issue #68, university sign-in)
 
 `sso.spec.ts`:

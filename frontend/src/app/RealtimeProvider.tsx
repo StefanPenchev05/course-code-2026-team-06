@@ -54,6 +54,12 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     };
   }, [client, refresh]);
 
+  // Exposes the connection state as <html data-live="open|reconnecting|…"> so browser journeys
+  // (tests/e2e, #94) can wait until the live connection is open instead of sleeping.
+  useEffect(() => {
+    document.documentElement.dataset.live = status;
+  }, [status]);
+
   const value = useMemo<RealtimeState>(() => ({ client, status, connectionNumber }), [client, status, connectionNumber]);
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;
 }

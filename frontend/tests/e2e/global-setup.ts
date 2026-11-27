@@ -39,7 +39,8 @@ async function checkBackend(api: APIRequestContext) {
   }
 }
 
-async function createTestCatalog(api: APIRequestContext): Promise<TestCatalog> {
+/** Also used by journeys that need a second, separate faculty (tests/e2e/live.ts, #94). */
+export async function createTestCatalog(api: APIRequestContext): Promise<TestCatalog> {
   if (!E2E.databaseURL) {
     throw new Error('Set E2E_DATABASE_URL to the (disposable) database the API uses, so test data can be provisioned.');
   }

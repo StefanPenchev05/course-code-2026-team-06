@@ -121,6 +121,8 @@ Suggested feature folders as the issues land: `features/tutoring`, `features/sch
   403/404 (`noLongerVisible(error)`) drops the record instead of keeping private data on screen.
 - Never open your own `WebSocket`, never send messages on it, and never show event fields as data.
   The contract is in `docs/realtime.md` and `docs/realtime-delivery.md`.
+- `<html data-live="…">` mirrors the connection state (`open`, `reconnecting`, …). Only the browser
+  journeys use it (#94), to wait until a page is listening; don't style or script against it.
 - In development Vite forwards `/ws` to the API (see `vite.config.ts`); the API checks the Origin
   exactly like for HTTP writes.
 
@@ -321,3 +323,22 @@ To check that a release bundle contains no password form, run
 **Tests:** `pages/LiveCoordination.test.tsx` covers each event family and the access changes
 (suspension, removed role, faculty change) with a fake WebSocket and a mocked API. These are component
 tests, not integration evidence: real-backend browser journeys for these screens are #94.
+
+---
+
+## 12. Status of #94 (live updates across browsers, tested against the real backend)
+
+| Acceptance criterion | Where it is checked |
+|---|---|
+| A change made in one browser appears in another without navigation or reload | Every journey in `tests/e2e/live-*.spec.ts` marks the page and checks it was never reloaded |
+| Offline/reconnect recovers missed changes and keeps no forbidden state | `live-sessions.spec.ts` (lost connection: the missed request appears once) and `live-access.spec.ts` (suspension while offline, two tabs, expired session) |
+| Unauthorized users or faculties never receive or render restricted changes | `live-coordination.spec.ts` (second faculty: no render, no received frame) and `live-sessions.spec.ts` (unrelated student: no frame) |
+| Reproducible suite in CI, linked to #36 | `.github/workflows/e2e.yml` runs all browser journeys with PostgreSQL, Redis, the API and the worker |
+
+The journeys and the CI job are described in `tests/e2e/README.md` ("Journeys covered (issue #94)"
+and "Continuous integration"). The only app change is the `data-live` attribute that lets the tests
+wait for an open connection instead of sleeping.
+
+**Not yet verified:** these journeys and the CI job were written without a running backend. Their
+first real run is the GitHub Actions run of the commit that adds them; until that run is green,
+#94 isn't done.

@@ -10,6 +10,8 @@ export const E2E = {
   emailDomain: process.env.E2E_EMAIL_DOMAIN ?? 'example.test',
   /** Set only when the API runs with OIDC_ENABLED=true, e.g. http://localhost:8180/realms/tutti-demo (#68). */
   oidcIssuer: process.env.E2E_OIDC_ISSUER ?? '',
+  /** "1" when the Tutti worker runs against the same database (CI does), so requests really expire (#94). */
+  worker: process.env.E2E_WORKER === '1',
 };
 
 /** A new address for every run, so the journeys can be repeated on the same database. */
