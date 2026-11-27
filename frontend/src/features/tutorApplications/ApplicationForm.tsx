@@ -24,7 +24,7 @@ function submitErrorMessage(error: unknown): string {
  * subject of their own program (SubjectSearch from the catalog feature), then
  * gives the grade and a short description.
  */
-export function ApplicationForm({ onSubmitted }: { onSubmitted: (subject: Subject) => void }) {
+export function ApplicationForm({ onSubmitted }: { onSubmitted: (subject: Subject, applicationId: string) => void }) {
   const { user } = useAuth();
   const [subject, setSubject] = useState<Subject | null>(null);
   const [grade, setGrade] = useState('');
@@ -54,8 +54,8 @@ export function ApplicationForm({ onSubmitted }: { onSubmitted: (subject: Subjec
 
     setSubmitting(true);
     try {
-      await applicationsApi.submit({ subject_id: subject.id, grade: parsedGrade, description: description.trim() });
-      onSubmitted(subject);
+      const created = await applicationsApi.submit({ subject_id: subject.id, grade: parsedGrade, description: description.trim() });
+      onSubmitted(subject, created.application_id);
     } catch (error) {
       // Keep everything the student typed so they can fix it and try again.
       setFormError(submitErrorMessage(error));

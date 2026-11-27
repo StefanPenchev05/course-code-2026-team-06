@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { noLongerVisible } from '../../shared/api/errors';
 import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
+import { useLiveRefresh } from '../../shared/realtime';
 import { Alert, Button, PageLoader, TextArea } from '../../shared/ui';
 import { noShowApi } from './api';
 import { NoShowStatusBadge } from './NoShowStatusBadge';
@@ -17,6 +19,7 @@ export function NoShowReview({ id }: { id: string }) {
   const [load, setLoad] = useState<Load | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [conflict, setConflict] = useState<string | null>(null);
+  const [decidedElsewhere, setDecidedElsewhere] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -28,6 +31,26 @@ export function NoShowReview({ id }: { id: string }) {
     );
     return () => controller.abort();
   }, [id, version]);
+
+  // Live refresh (#93): coordination.changed carries the report's ID. A decision made elsewhere
+  // shows up in place; a note being typed stays while the report is pending. If the report is
+  // no longer visible to this coordinator, its content is dropped.
+  useLiveRefresh(
+    ['coordination.changed'],
+    () => {
+      const wasPending = load?.status === 'ready' && load.report.status === 'PENDING';
+      noShowApi.detail(id).then(
+        (report) => {
+          setLoad((previous) => (previous?.status === 'ready' ? { ...previous, report } : previous));
+          if (wasPending && report.status !== 'PENDING') setDecidedElsewhere(true);
+        },
+        (error: unknown) => {
+          if (noLongerVisible(error)) setLoad({ version, status: 'error', error });
+        },
+      );
+    },
+    { entityId: id },
+  );
 
   // After an error, "Try again" shows the loader; after a conflict the last state stays until the new one arrives.
   if (!load || (load.status === 'error' && load.version !== version)) {
@@ -62,6 +85,12 @@ export function NoShowReview({ id }: { id: string }) {
       <h1>No-show report {reference(report.id)}</h1>
       {done && <Alert kind="success">{done}</Alert>}
       {conflict && <Alert kind="warning">{conflict}</Alert>}
+      {decidedElsewhere && !done && !conflict && (
+        <Alert kind="info" title="Decided in the meantime">
+          This report was decided elsewhere while you had it open, for example in another tab. The page now shows its
+          current state.
+        </Alert>
+      )}
 
       <dl className="details">
         <dt>Status</dt>

@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { noLongerVisible } from '../../shared/api/errors';
 import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
+import { useLiveRefresh } from '../../shared/realtime';
 import { Alert, Button, PageLoader, TextArea } from '../../shared/ui';
 import { issuesApi } from './api';
 import { IssueStatusBadge } from './IssueStatusBadge';
@@ -14,6 +16,7 @@ export function IssueReview({ id }: { id: string }) {
   const [load, setLoad] = useState<Load | null>(null);
   const [resolved, setResolved] = useState(false);
   const [conflict, setConflict] = useState<string | null>(null);
+  const [resolvedElsewhere, setResolvedElsewhere] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -25,6 +28,26 @@ export function IssueReview({ id }: { id: string }) {
     );
     return () => controller.abort();
   }, [id, version]);
+
+  // Live refresh (#93): coordination.changed carries the report's ID. A resolution made
+  // elsewhere shows up in place; a note being typed stays while the report is open. If the
+  // report is no longer visible to this coordinator, its content is dropped.
+  useLiveRefresh(
+    ['coordination.changed'],
+    () => {
+      const wasOpen = load?.status === 'ready' && load.issue.status === 'OPEN';
+      issuesApi.detail(id).then(
+        (issue) => {
+          setLoad((previous) => (previous?.status === 'ready' ? { ...previous, issue } : previous));
+          if (wasOpen && issue.status !== 'OPEN') setResolvedElsewhere(true);
+        },
+        (error: unknown) => {
+          if (noLongerVisible(error)) setLoad({ version, status: 'error', error });
+        },
+      );
+    },
+    { entityId: id },
+  );
 
   // After an error, "Try again" shows the loader; after a conflict the last state stays until the new one arrives.
   if (!load || (load.status === 'error' && load.version !== version)) {
@@ -59,6 +82,12 @@ export function IssueReview({ id }: { id: string }) {
       <h1>Report {reference(issue.id)}</h1>
       {resolved && <Alert kind="success">Report resolved. Your note is stored with it.</Alert>}
       {conflict && <Alert kind="warning">{conflict}</Alert>}
+      {resolvedElsewhere && !resolved && !conflict && (
+        <Alert kind="info" title="Resolved in the meantime">
+          This report was resolved elsewhere while you had it open, for example in another tab. The page now shows its
+          current state.
+        </Alert>
+      )}
 
       <dl className="details">
         <dt>Status</dt>

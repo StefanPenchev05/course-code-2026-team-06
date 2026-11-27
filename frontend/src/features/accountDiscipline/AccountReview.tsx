@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { errorMessage } from '../../shared/api/errors';
+import { errorMessage, noLongerVisible } from '../../shared/api/errors';
 import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
+import { useLiveRefresh } from '../../shared/realtime';
 import { Alert, Button, Spinner, TextArea } from '../../shared/ui';
 import { AccountHistory } from './AccountHistory';
 import { disciplineApi } from './api';
@@ -17,7 +18,9 @@ type Latest = { version: number; status: 'ready'; event: AuditEvent | null } | {
 export function AccountReview({ userId }: { userId: string }) {
   const [version, setVersion] = useState(0);
   const [latest, setLatest] = useState<Latest | null>(null);
-  const [notice, setNotice] = useState<{ kind: 'success' | 'warning'; text: string } | null>(null);
+  const [notice, setNotice] = useState<{ kind: 'success' | 'warning' | 'info'; text: string } | null>(null);
+  // Counts this coordinator's own decisions; a new one resets the form and the history.
+  const [decisions, setDecisions] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -30,6 +33,31 @@ export function AccountReview({ userId }: { userId: string }) {
     return () => controller.abort();
   }, [userId, version]);
 
+  // Live refresh (#93): a suspension or reinstatement decided elsewhere shows up in place.
+  // coordination.changed carries a decision or flag ID, not the account, so any of them
+  // re-checks. The reason being typed stays unless the account's state flipped.
+  useLiveRefresh(['coordination.changed'], () => {
+    const before = latest?.status === 'ready' ? latest.event?.is_suspended === true : null;
+    disciplineApi.history(userId, 'SUSPENSION', 0).then(
+      (page) => {
+        const event = page.data[0] ?? null;
+        setLatest((previous) => (previous?.status === 'ready' ? { ...previous, event } : previous));
+        const now = event?.is_suspended === true;
+        if (before !== null && before !== now) {
+          setNotice({
+            kind: 'info',
+            text: now
+              ? 'This account was suspended elsewhere while you had it open, for example in another tab.'
+              : 'This account was reinstated elsewhere while you had it open, for example in another tab.',
+          });
+        }
+      },
+      (error: unknown) => {
+        if (noLongerVisible(error)) setLatest({ version, status: 'error', message: errorMessage(error) });
+      },
+    );
+  });
+
   function decided(decision: SuspensionDecision) {
     setNotice({
       kind: 'success',
@@ -37,6 +65,7 @@ export function AccountReview({ userId }: { userId: string }) {
         ? `Account suspended. ${decision.cancelled_sessions} future ${decision.cancelled_sessions === 1 ? 'session was' : 'sessions were'} cancelled; the person and the other participants are notified.`
         : 'Account reinstated. The person can use Tutti again; cancelled sessions and flags stay as they are.',
     });
+    setDecisions((n) => n + 1);
     setVersion((n) => n + 1);
   }
 
@@ -79,12 +108,13 @@ export function AccountReview({ userId }: { userId: string }) {
               reinstate them.
             </p>
             <DecisionForm
-              key={`${suspended}-${version}`}
+              key={`${suspended}-${decisions}`}
               userId={userId}
               suspend={!suspended}
               onDecided={decided}
               onConflict={(message) => {
                 setNotice({ kind: 'warning', text: message });
+                setDecisions((n) => n + 1);
                 setVersion((n) => n + 1);
               }}
             />
@@ -92,7 +122,7 @@ export function AccountReview({ userId }: { userId: string }) {
         )}
       </section>
 
-      <AccountHistory key={version} userId={userId} />
+      <AccountHistory key={decisions} userId={userId} />
     </>
   );
 }

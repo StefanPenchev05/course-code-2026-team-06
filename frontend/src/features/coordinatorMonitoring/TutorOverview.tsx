@@ -1,6 +1,7 @@
 import { useEffect, useId, useState } from 'react';
 import { ApiError, type Pagination } from '../../shared/api/client';
-import { errorMessage } from '../../shared/api/errors';
+import { errorMessage, noLongerVisible } from '../../shared/api/errors';
+import { useLiveRefresh } from '../../shared/realtime';
 import { Alert, Button, PageLoader } from '../../shared/ui';
 import { monitoringApi } from './api';
 import { Totals } from './Totals';
@@ -29,6 +30,23 @@ export function TutorOverview({ id }: { id: string }) {
     );
     return () => controller.abort();
   }, [id, attempt]);
+
+  // Live refresh (#93): totals and subjects update in place. activity.changed names the
+  // tutor; application and case events name a record, so any of those re-checks. If the
+  // tutor left this faculty, the page drops their data.
+  const refresh = () => {
+    monitoringApi.tutor(id).then(
+      (response) =>
+        setLoad((previous) =>
+          previous?.status === 'ready' ? { ...previous, tutor: response.data, offerings: response.offerings_pagination } : previous,
+        ),
+      (error: unknown) => {
+        if (noLongerVisible(error)) setLoad({ attempt, status: 'error', error });
+      },
+    );
+  };
+  useLiveRefresh(['activity.changed'], refresh, { entityId: id });
+  useLiveRefresh(['tutor_application.changed', 'coordination.changed'], refresh);
 
   const current = load?.attempt === attempt ? load : null;
   if (!current) {

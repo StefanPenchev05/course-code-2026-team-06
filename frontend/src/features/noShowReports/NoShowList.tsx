@@ -2,7 +2,8 @@ import { useCallback } from 'react';
 import { Link } from 'react-router';
 import { errorMessage } from '../../shared/api/errors';
 import { usePagedList } from '../../shared/hooks/usePagedList';
-import { Alert, Button, Spinner } from '../../shared/ui';
+import { useLiveRefresh } from '../../shared/realtime';
+import { Alert, Button, LiveAnnouncement, Spinner } from '../../shared/ui';
 import { noShowApi } from './api';
 import { NoShowStatusBadge } from './NoShowStatusBadge';
 import { excerpt, formatDateTime, reference } from './rules';
@@ -26,7 +27,9 @@ const LIST_NAME: Record<NoShowStatus, string> = {
  */
 export function NoShowList({ status }: { status: NoShowStatus }) {
   const fetchReports = useCallback((offset: number, signal?: AbortSignal) => noShowApi.list(status, offset, signal), [status]);
-  const { state, reload, loadMore, loadingMore, moreError } = usePagedList(fetchReports);
+  const { state, reload, refresh, change, loadMore, loadingMore, moreError } = usePagedList(fetchReports);
+  // New reports and decisions made elsewhere appear without a reload (#93).
+  useLiveRefresh(['coordination.changed'], refresh);
 
   if (state.status === 'loading') return <Spinner label="Loading no-show reports…" />;
   if (state.status === 'error') {
@@ -42,10 +45,19 @@ export function NoShowList({ status }: { status: NoShowStatus }) {
       </Alert>
     );
   }
-  if (state.items.length === 0) return <p>{EMPTY[status]}</p>;
+  const announcement = <LiveAnnouncement change={change} noun={['no-show report', 'no-show reports']} />;
+  if (state.items.length === 0) {
+    return (
+      <>
+        {announcement}
+        <p>{EMPTY[status]}</p>
+      </>
+    );
+  }
 
   return (
     <>
+      {announcement}
       <ul className="card-list" aria-label={LIST_NAME[status]}>
         {state.items.map((report) => (
           <li key={report.id} className="card">

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { errorMessage } from '../../shared/api/errors';
+import { useLiveRefresh } from '../../shared/realtime';
 import { Alert, Button, Spinner } from '../../shared/ui';
 import { monitoringApi } from './api';
+import { MONITORING_EVENTS } from './rules';
 import { Totals } from './Totals';
 import type { FacultyStatistics } from './types';
 
@@ -22,6 +24,14 @@ export function FacultyOverview() {
     );
     return () => controller.abort();
   }, [attempt]);
+
+  // Live refresh (#93): new totals replace the shown ones in place; a failure keeps them.
+  useLiveRefresh(MONITORING_EVENTS, () => {
+    monitoringApi.statistics().then(
+      (statistics) => setLoad((previous) => (previous?.status === 'ready' ? { ...previous, statistics } : previous)),
+      () => undefined,
+    );
+  });
 
   const current = load?.attempt === attempt ? load : null;
   if (!current) return <Spinner label="Loading faculty totals…" />;

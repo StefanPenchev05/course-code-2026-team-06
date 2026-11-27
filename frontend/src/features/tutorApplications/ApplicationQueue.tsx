@@ -1,7 +1,8 @@
 import { useCallback } from 'react';
 import { Link } from 'react-router';
 import { errorMessage } from '../../shared/api/errors';
-import { Alert, Button, Spinner } from '../../shared/ui';
+import { useLiveRefresh } from '../../shared/realtime';
+import { Alert, Button, LiveAnnouncement, Spinner } from '../../shared/ui';
 import { applicationsApi } from './api';
 import { ApplicationStatusBadge } from './ApplicationStatusBadge';
 import { applicantReference, formatDateTime } from './format';
@@ -24,7 +25,9 @@ export function ApplicationQueue({ status }: { status: ApplicationStatus }) {
     (offset: number, signal?: AbortSignal) => applicationsApi.queue(status, offset, signal),
     [status],
   );
-  const { state, reload, loadMore, loadingMore, moreError } = usePagedList(fetchQueue);
+  const { state, reload, refresh, change, loadMore, loadingMore, moreError } = usePagedList(fetchQueue);
+  // New applications and decisions by other coordinators appear without a reload (#93).
+  useLiveRefresh(['tutor_application.changed'], refresh);
 
   if (state.status === 'loading') return <Spinner label="Loading applications…" />;
   if (state.status === 'error') {
@@ -40,10 +43,19 @@ export function ApplicationQueue({ status }: { status: ApplicationStatus }) {
       </Alert>
     );
   }
-  if (state.items.length === 0) return <p>{EMPTY_MESSAGES[status]}</p>;
+  const announcement = <LiveAnnouncement change={change} noun={['application', 'applications']} />;
+  if (state.items.length === 0) {
+    return (
+      <>
+        {announcement}
+        <p>{EMPTY_MESSAGES[status]}</p>
+      </>
+    );
+  }
 
   return (
     <>
+      {announcement}
       <ul className="card-list">
         {state.items.map((application) => (
           <li key={application.id} className="card">

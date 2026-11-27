@@ -1,14 +1,17 @@
 import { Link } from 'react-router';
 import { errorMessage } from '../../shared/api/errors';
 import { usePagedList } from '../../shared/hooks/usePagedList';
-import { Alert, Button, Spinner } from '../../shared/ui';
+import { useLiveRefresh } from '../../shared/realtime';
+import { Alert, Button, LiveAnnouncement, Spinner } from '../../shared/ui';
 import { verificationsApi } from './api';
 import { formatDateTime } from './rules';
 import { useProgramNames } from './useProgramNames';
 
 /** Pending student registrations of the coordinator's faculty, oldest first (FR2, UC01). */
 export function VerificationQueue() {
-  const { state, reload, loadMore, loadingMore, moreError } = usePagedList(verificationsApi.pending);
+  const { state, reload, refresh, change, loadMore, loadingMore, moreError } = usePagedList(verificationsApi.pending);
+  // New registrations and decisions made elsewhere appear without a reload (#93).
+  useLiveRefresh(['coordination.changed'], refresh);
   const programs = useProgramNames();
 
   if (state.status === 'loading') return <Spinner label="Loading registrations…" />;
@@ -25,10 +28,19 @@ export function VerificationQueue() {
       </Alert>
     );
   }
-  if (state.items.length === 0) return <p>No registrations are waiting for review.</p>;
+  const announcement = <LiveAnnouncement change={change} noun={['registration', 'registrations']} />;
+  if (state.items.length === 0) {
+    return (
+      <>
+        {announcement}
+        <p>No registrations are waiting for review.</p>
+      </>
+    );
+  }
 
   return (
     <>
+      {announcement}
       <ul className="card-list" aria-label="Registrations waiting for review">
         {state.items.map((verification) => (
           <li key={verification.id} className="card">

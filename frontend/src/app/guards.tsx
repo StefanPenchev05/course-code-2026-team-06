@@ -3,7 +3,7 @@ import { Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../features/auth/AuthContext';
 import { safeRedirect } from '../features/auth/redirect';
 import { takeReturnPath } from '../features/auth/sso';
-import { hasRole, type Role } from '../features/auth/types';
+import { accessKey, hasRole, type Role } from '../features/auth/types';
 import { Alert, Button, PageLoader } from '../shared/ui';
 
 function ServerUnavailable() {
@@ -47,7 +47,9 @@ export function RequireAuth() {
   if (state.status === 'loading') return <PageLoader label="Checking your session…" />;
   if (state.status === 'unavailable') return <ServerUnavailable />;
   if (state.status === 'anonymous') return <Navigate to="/login" replace state={{ from: location }} />;
-  return <Outlet />;
+  // A change of roles, verification, program or faculty (#93) loads the page again from
+  // scratch: no list, detail or form from the old access stays on screen.
+  return <Outlet key={accessKey(state.user)} />;
 }
 
 /** Pages only for visitors who are not logged in (login, register). */

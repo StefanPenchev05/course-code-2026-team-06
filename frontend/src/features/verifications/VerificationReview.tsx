@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { noLongerVisible } from '../../shared/api/errors';
 import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
+import { useLiveRefresh } from '../../shared/realtime';
 import { Alert, Button, ConfirmAction, PageLoader, TextArea } from '../../shared/ui';
 import { verificationsApi } from './api';
 import { decisionError, formatDateTime, isConflict, loadError, reasonProblem } from './rules';
@@ -18,9 +20,30 @@ export function VerificationReview({ id }: { id: string }) {
   const [load, setLoad] = useState<Load | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [decidedElsewhere, setDecidedElsewhere] = useState(false);
   const programs = useProgramNames();
   // The decision buttons are at the bottom; move focus up to the error so it is seen and announced.
   const { alertRef, signalFailure } = useFocusOnFailure();
+
+  // Live refresh (#93): coordination.changed carries the verification's ID. A decision made
+  // elsewhere shows up in place; a reason being typed stays while it is still pending. If the
+  // registration is no longer visible (e.g. moved faculty), the personal details are dropped.
+  useLiveRefresh(
+    ['coordination.changed'],
+    () => {
+      const wasPending = load?.status === 'ready' && load.verification.status === 'PENDING';
+      verificationsApi.detail(id).then(
+        (verification) => {
+          setLoad((previous) => (previous?.status === 'ready' ? { ...previous, verification } : previous));
+          if (wasPending && verification.status !== 'PENDING') setDecidedElsewhere(true);
+        },
+        (error: unknown) => {
+          if (noLongerVisible(error)) setLoad({ version, status: 'error', error });
+        },
+      );
+    },
+    { entityId: id },
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -88,6 +111,12 @@ export function VerificationReview({ id }: { id: string }) {
     <>
       <h1>{verification.name ? `Registration of ${verification.name}` : 'Student registration'}</h1>
       {success && <Alert kind="success">{success}</Alert>}
+      {decidedElsewhere && !success && !failure && (
+        <Alert kind="info" title="Decided in the meantime">
+          This registration was decided elsewhere while you had it open, for example in another tab. The page now shows
+          its current state.
+        </Alert>
+      )}
       {failure && (
         <div ref={alertRef} tabIndex={-1}>
           <Alert>{failure}</Alert>

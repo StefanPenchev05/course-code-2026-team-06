@@ -21,6 +21,16 @@ export function hasRole(user: CurrentUser | null, role: Role): boolean {
   return user !== null && user.roles.includes(role);
 }
 
+/**
+ * Everything that decides what this user may see: identity, roles, verification,
+ * program and coordinator faculty (the same fields RealtimeProvider restarts on).
+ * When it changes, protected pages load again from scratch (#93), so nothing from
+ * the old access stays on screen.
+ */
+export function accessKey(user: CurrentUser): string {
+  return [user.id, [...user.roles].sort().join('+'), user.verified_student, user.verification_status ?? '', user.program_id ?? '', user.coordinator_faculty_id ?? ''].join('|');
+}
+
 /** Body of POST /auth/register (and POST /auth/resubmit-verification, without password). */
 export interface StudentDetails {
   name: string;

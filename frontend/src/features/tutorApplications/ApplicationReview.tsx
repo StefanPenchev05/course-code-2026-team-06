@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiError } from '../../shared/api/client';
-import { errorMessage } from '../../shared/api/errors';
+import { errorMessage, noLongerVisible } from '../../shared/api/errors';
 import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
+import { useLiveRefresh } from '../../shared/realtime';
 import { Alert, Button, ConfirmAction, PageLoader, TextArea } from '../../shared/ui';
 import { applicationsApi } from './api';
 import { ApplicationStatusBadge } from './ApplicationStatusBadge';
@@ -114,8 +115,29 @@ export function ApplicationReview({ id }: { id: string }) {
   const [version, setVersion] = useState(0);
   const [decisionError, setDecisionError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [decidedElsewhere, setDecidedElsewhere] = useState(false);
   // The decision buttons are at the bottom; move focus up to the error so it is seen and announced.
   const { alertRef, signalFailure } = useFocusOnFailure();
+
+  // Live refresh (#93): another coordinator's decision shows up in place. A reason being
+  // typed stays while the application is still pending. If it is no longer visible to this
+  // coordinator (e.g. the student moved faculty), the private details are dropped.
+  useLiveRefresh(
+    ['tutor_application.changed'],
+    () => {
+      const wasPending = load.status === 'ready' && load.application.status === 'PENDING';
+      applicationsApi.reviewDetail(id).then(
+        (application) => {
+          setLoad((previous) => (previous.status === 'ready' ? { status: 'ready', application } : previous));
+          if (wasPending && application.status !== 'PENDING') setDecidedElsewhere(true);
+        },
+        (error: unknown) => {
+          if (noLongerVisible(error)) setLoad({ status: 'error', error });
+        },
+      );
+    },
+    { entityId: id },
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -186,6 +208,12 @@ export function ApplicationReview({ id }: { id: string }) {
     <>
       <h1>Application to tutor {application.subject_name}</h1>
       {success && <Alert kind="success">{success}</Alert>}
+      {decidedElsewhere && !success && !decisionError && (
+        <Alert kind="info" title="Decided in the meantime">
+          This application was decided elsewhere while you had it open, for example in another tab. The page now shows
+          its current state.
+        </Alert>
+      )}
       {decisionError && (
         <div ref={alertRef} tabIndex={-1}>
           <Alert>{decisionError}</Alert>

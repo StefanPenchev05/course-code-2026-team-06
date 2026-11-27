@@ -1,7 +1,15 @@
 import { errorMessage } from '../../shared/api/errors';
+import type { EventType } from '../../shared/realtime';
 import type { SessionStatus } from './types';
 
 export const REASON_MAX_BYTES = 2000;
+
+/**
+ * Events that change the monitoring totals (#93): completions and feedback
+ * (activity.changed), newly approved tutors and offerings (tutor_application.changed),
+ * suspensions and other case decisions (coordination.changed).
+ */
+export const MONITORING_EVENTS: readonly EventType[] = ['activity.changed', 'tutor_application.changed', 'coordination.changed'];
 
 export const STATUS_LABEL: Record<SessionStatus, string> = {
   REQUESTED: 'Requested',

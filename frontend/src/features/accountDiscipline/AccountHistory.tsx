@@ -1,7 +1,8 @@
 import { useCallback, useId, useState } from 'react';
 import { errorMessage } from '../../shared/api/errors';
 import { usePagedList } from '../../shared/hooks/usePagedList';
-import { Alert, Button, SelectField, Spinner } from '../../shared/ui';
+import { useLiveRefresh } from '../../shared/realtime';
+import { Alert, Button, LiveAnnouncement, SelectField, Spinner } from '../../shared/ui';
 import { disciplineApi } from './api';
 import { actorText, CATEGORY_LABEL, formatDateTime, reference, VIOLATION_LABEL } from './rules';
 import { AUDIT_CATEGORIES, type AuditCategory, type AuditEvent } from './types';
@@ -40,7 +41,9 @@ function HistoryList({ userId, category }: { userId: string; category: AuditCate
     (offset: number, signal?: AbortSignal) => disciplineApi.history(userId, category, offset, signal),
     [userId, category],
   );
-  const { state, reload, loadMore, loadingMore, moreError } = usePagedList(fetchPage);
+  const { state, reload, refresh, change, loadMore, loadingMore, moreError } = usePagedList(fetchPage);
+  // New violations, flags and decisions appear in place; the chosen category stays (#93).
+  useLiveRefresh(['coordination.changed'], refresh);
 
   if (state.status === 'loading') return <Spinner label="Loading history…" />;
   if (state.status === 'error') {
@@ -56,10 +59,19 @@ function HistoryList({ userId, category }: { userId: string; category: AuditCate
       </Alert>
     );
   }
-  if (state.items.length === 0) return <p>{EMPTY[category]}</p>;
+  const announcement = <LiveAnnouncement change={change} noun={['event', 'events']} />;
+  if (state.items.length === 0) {
+    return (
+      <>
+        {announcement}
+        <p>{EMPTY[category]}</p>
+      </>
+    );
+  }
 
   return (
     <>
+      {announcement}
       <ul className="card-list" aria-label={CATEGORY_LABEL[category]}>
         {state.items.map((event) => (
           <li key={event.id} className="card">

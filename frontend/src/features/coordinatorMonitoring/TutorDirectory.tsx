@@ -2,11 +2,12 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { errorMessage } from '../../shared/api/errors';
 import { usePagedList } from '../../shared/hooks/usePagedList';
-import { Alert, Button, SelectField, Spinner } from '../../shared/ui';
+import { useLiveRefresh } from '../../shared/realtime';
+import { Alert, Button, LiveAnnouncement, SelectField, Spinner } from '../../shared/ui';
 import { useAuth } from '../auth/AuthContext';
 import { catalogApi, SubjectSearch, type Program, type Subject } from '../catalog';
 import { monitoringApi } from './api';
-import { hoursText, ratingText } from './rules';
+import { hoursText, MONITORING_EVENTS, ratingText } from './rules';
 
 /**
  * Tutors of the coordinator's faculty, filtered by program and subject. The filters
@@ -94,7 +95,9 @@ function TutorList({ programId, subjectId }: { programId: string; subjectId: str
     (offset: number, signal?: AbortSignal) => monitoringApi.tutors({ programId, subjectId }, offset, signal),
     [programId, subjectId],
   );
-  const { state, reload, loadMore, loadingMore, moreError } = usePagedList(fetchTutors);
+  const { state, reload, refresh, change, loadMore, loadingMore, moreError } = usePagedList(fetchTutors);
+  // Totals, ratings and newly approved tutors update in place; the filters stay (#93).
+  useLiveRefresh(MONITORING_EVENTS, refresh);
 
   if (state.status === 'loading') return <Spinner label="Loading tutors…" />;
   if (state.status === 'error') {
@@ -110,12 +113,19 @@ function TutorList({ programId, subjectId }: { programId: string; subjectId: str
       </Alert>
     );
   }
+  const announcement = <LiveAnnouncement change={change} noun={['tutor', 'tutors']} />;
   if (state.items.length === 0) {
-    return <p>{programId || subjectId ? 'No tutors match these filters.' : 'Your faculty has no approved tutors yet.'}</p>;
+    return (
+      <>
+        {announcement}
+        <p>{programId || subjectId ? 'No tutors match these filters.' : 'Your faculty has no approved tutors yet.'}</p>
+      </>
+    );
   }
 
   return (
     <>
+      {announcement}
       <ul className="card-list" aria-label="Tutors">
         {state.items.map((tutor) => (
           <li key={tutor.id} className="card">

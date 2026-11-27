@@ -1,7 +1,8 @@
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { ApiError } from '../../shared/api/client';
-import { errorMessage } from '../../shared/api/errors';
+import { errorMessage, noLongerVisible } from '../../shared/api/errors';
 import { useFocusOnFailure } from '../../shared/hooks/useFocusOnFailure';
+import { useLiveRefresh } from '../../shared/realtime';
 import { Alert, Button, Spinner, TextArea } from '../../shared/ui';
 import { browserTimeZone, groupByDay, MODE_LABEL, timeRange } from '../../shared/utils/datetime';
 import { monitoringApi } from './api';
@@ -48,6 +49,26 @@ export function TutorSchedule({ tutorId, now }: TutorScheduleProps) {
     );
     return () => controller.abort();
   }, [tutorId, thisWeek, week, key]);
+
+  // Live refresh (#93): new requests, cancellations and completions show up in the week
+  // on screen. Entries stay mounted, so a cancellation reason being typed is kept.
+  const refresh = () => {
+    const shownKey = key;
+    const weekStart = addDays(thisWeek, week * 7);
+    monitoringApi.schedule(tutorId, weekStart, addDays(weekStart, 7)).then(
+      (page) =>
+        setLoad((previous) =>
+          previous?.status === 'ready' && previous.key === shownKey
+            ? { ...previous, entries: page.data, hasMore: page.pagination.has_more }
+            : previous,
+        ),
+      (error: unknown) => {
+        if (noLongerVisible(error)) setLoad({ key: shownKey, status: 'error', message: errorMessage(error) });
+      },
+    );
+  };
+  useLiveRefresh(['booking.changed'], refresh);
+  useLiveRefresh(['activity.changed'], refresh, { entityId: tutorId });
 
   const current = load?.key === key ? load : null;
   const day = new Intl.DateTimeFormat(undefined, { timeZone, day: 'numeric', month: 'long' });

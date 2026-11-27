@@ -1,8 +1,10 @@
 import { useEffect, useId, useState } from 'react';
 import { Link } from 'react-router';
 import { errorMessage } from '../../shared/api/errors';
+import { useLiveRefresh } from '../../shared/realtime';
 import { Alert, Button, Spinner } from '../../shared/ui';
 import { browserTimeZone, MODE_LABEL } from '../../shared/utils/datetime';
+import { useAuth } from '../auth/AuthContext';
 import { feedbackApi } from './api';
 import { RatingStars } from './Rating';
 import type { FeedbackEntry, TutorActivity, UpcomingSession } from './types';
@@ -15,6 +17,7 @@ const isWebLink = (value: string) => /^https?:\/\//i.test(value);
 
 /** A tutor's totals, next accepted sessions and the feedback students gave (FR14, UC10). */
 export function ActivityOverview({ timeZone = browserTimeZone() }: { timeZone?: string }) {
+  const { user } = useAuth();
   const [attempt, setAttempt] = useState(0);
   const [load, setLoad] = useState<Load | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -33,6 +36,37 @@ export function ActivityOverview({ timeZone = browserTimeZone() }: { timeZone?: 
     );
     return () => controller.abort();
   }, [attempt]);
+
+  /**
+   * Live refresh (#93): new feedback, completions and corrected no-show decisions
+   * (activity.changed) and accepted or cancelled sessions (booking.changed) update the
+   * totals in place. As much feedback as is shown is loaded again, so "Show more" results
+   * stay. A failure keeps what is shown; the next event or reconnection retries.
+   */
+  const refresh = () => {
+    const before = load;
+    if (before?.status !== 'ready') return;
+    void (async () => {
+      try {
+        const activity = await feedbackApi.activity();
+        const feedback: FeedbackEntry[] = [];
+        let hasMoreFeedback = true;
+        while (hasMoreFeedback && (feedback.length === 0 || feedback.length < before.feedback.length)) {
+          const page = await feedbackApi.received(feedback.length);
+          feedback.push(...page.data);
+          hasMoreFeedback = page.pagination.has_more;
+          if (page.data.length === 0) break;
+        }
+        setLoad((previous) =>
+          previous?.status === 'ready' && previous.attempt === before.attempt ? { ...previous, activity, feedback, hasMoreFeedback } : previous,
+        );
+      } catch {
+        // Keep what is shown.
+      }
+    })();
+  };
+  useLiveRefresh(['activity.changed'], refresh, { entityId: user?.id });
+  useLiveRefresh(['booking.changed'], refresh);
 
   const current = load?.attempt === attempt ? load : null;
   if (!current) return <Spinner label="Loading your activity…" />;

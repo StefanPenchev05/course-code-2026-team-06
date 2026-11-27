@@ -2,7 +2,8 @@ import { useCallback } from 'react';
 import { Link } from 'react-router';
 import { errorMessage } from '../../shared/api/errors';
 import { usePagedList } from '../../shared/hooks/usePagedList';
-import { Alert, Button, Spinner } from '../../shared/ui';
+import { useLiveRefresh } from '../../shared/realtime';
+import { Alert, Button, LiveAnnouncement, Spinner } from '../../shared/ui';
 import { issuesApi } from './api';
 import { IssueStatusBadge } from './IssueStatusBadge';
 import { excerpt, formatDateTime, reference } from './rules';
@@ -19,7 +20,9 @@ const EMPTY: Record<IssueStatus, string> = {
  */
 export function IssueInbox({ status }: { status: IssueStatus }) {
   const fetchInbox = useCallback((offset: number, signal?: AbortSignal) => issuesApi.inbox(status, offset, signal), [status]);
-  const { state, reload, loadMore, loadingMore, moreError } = usePagedList(fetchInbox);
+  const { state, reload, refresh, change, loadMore, loadingMore, moreError } = usePagedList(fetchInbox);
+  // New reports and resolutions made elsewhere appear without a reload (#93).
+  useLiveRefresh(['coordination.changed'], refresh);
 
   if (state.status === 'loading') return <Spinner label="Loading reports…" />;
   if (state.status === 'error') {
@@ -35,10 +38,19 @@ export function IssueInbox({ status }: { status: IssueStatus }) {
       </Alert>
     );
   }
-  if (state.items.length === 0) return <p>{EMPTY[status]}</p>;
+  const announcement = <LiveAnnouncement change={change} noun={['report', 'reports']} />;
+  if (state.items.length === 0) {
+    return (
+      <>
+        {announcement}
+        <p>{EMPTY[status]}</p>
+      </>
+    );
+  }
 
   return (
     <>
+      {announcement}
       <ul className="card-list" aria-label={status === 'OPEN' ? 'Open reports' : 'Resolved reports'}>
         {state.items.map((issue) => (
           <li key={issue.id} className="card">

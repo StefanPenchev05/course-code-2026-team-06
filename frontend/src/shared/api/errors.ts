@@ -31,3 +31,12 @@ export function errorMessage(error: unknown, overrides: Partial<Record<number, s
   }
   return DEFAULT_MESSAGES[error.status] ?? GENERIC;
 }
+
+/**
+ * True when the record is no longer visible to this user (403/404), e.g. the case moved
+ * to another faculty or the account lost its role. Live views then drop what they show
+ * instead of keeping private data on screen (#93).
+ */
+export function noLongerVisible(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 403 || error.status === 404);
+}

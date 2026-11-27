@@ -2,16 +2,20 @@ import { Link } from 'react-router';
 import { errorMessage } from '../../shared/api/errors';
 import { usePagedList } from '../../shared/hooks/usePagedList';
 import { useLiveRefresh } from '../../shared/realtime';
-import { Alert, Button, Spinner } from '../../shared/ui';
+import { Alert, Button, LiveAnnouncement, Spinner } from '../../shared/ui';
 import { disciplineApi } from './api';
 import { formatDateTime, reference } from './rules';
 import { SuspensionBadge } from './SuspensionBadge';
+import type { FlaggedUser } from './types';
+
+const flagId = (flag: FlaggedUser) => flag.flag_id;
 
 /** Semester flags stored for the coordinator's faculty, newest first (FR18, UC16). */
 export function FlaggedList() {
-  const { state, reload, loadMore, loadingMore, moreError } = usePagedList(disciplineApi.flagged);
-  // New flags and suspension decisions arrive as coordination.changed; refetch the list (#93).
-  useLiveRefresh(['coordination.changed'], reload);
+  const { state, reload, refresh, change, loadMore, loadingMore, moreError } = usePagedList(disciplineApi.flagged, flagId);
+  // New flags and suspension decisions arrive as coordination.changed; refresh in place,
+  // keeping "Show more" results (#93).
+  useLiveRefresh(['coordination.changed'], refresh);
 
   if (state.status === 'loading') return <Spinner label="Loading flagged accounts…" />;
   if (state.status === 'error') {
@@ -27,10 +31,19 @@ export function FlaggedList() {
       </Alert>
     );
   }
-  if (state.items.length === 0) return <p>No accounts of your faculty are flagged.</p>;
+  const announcement = <LiveAnnouncement change={change} noun={['flag', 'flags']} />;
+  if (state.items.length === 0) {
+    return (
+      <>
+        {announcement}
+        <p>No accounts of your faculty are flagged.</p>
+      </>
+    );
+  }
 
   return (
     <>
+      {announcement}
       <ul className="card-list" aria-label="Flagged accounts">
         {state.items.map((flag) => (
           <li key={flag.flag_id} className="card">
