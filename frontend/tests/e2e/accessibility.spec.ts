@@ -154,7 +154,9 @@ test('every screen passes automated accessibility checks and fits a phone screen
   await visit(page, '/coordinator/issues', 'Issue inbox', findings);
   await visitFirstDetail(page, '/coordinator/issues', '/coordinator/issues/', 'Issue detail', findings);
   await visit(page, '/coordinator/no-show-reports', 'No-show reports', findings);
-
+  await visit(page, '/coordinator/flags', 'Flagged accounts', findings);
+  await visitFirstDetail(page, '/coordinator/flags', '/coordinator/users/', 'Account detail', findings);
+  
   const problems = report(testInfo, findings);
   expect(problems, 'accessibility/mobile problems (see the report above)').toEqual([]);
 });

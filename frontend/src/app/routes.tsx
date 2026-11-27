@@ -25,6 +25,8 @@ import { CoordinatorIssuePage } from '../pages/CoordinatorIssuePage';
 import { CoordinatorIssuesPage } from '../pages/CoordinatorIssuesPage';
 import { CoordinatorNoShowReportPage } from '../pages/CoordinatorNoShowReportPage';
 import { CoordinatorNoShowReportsPage } from '../pages/CoordinatorNoShowReportsPage';
+import { CoordinatorFlagsPage } from '../pages/CoordinatorFlagsPage';
+import { CoordinatorUserPage } from '../pages/CoordinatorUserPage';
 
 /**
  * All screens of the app. Replace a ComingSoonPage with the real page when
@@ -79,6 +81,8 @@ export const routes: RouteObject[] = [
               { path: 'coordinator/issues/:id', element: <CoordinatorIssuePage /> },
               { path: 'coordinator/no-show-reports', element: <CoordinatorNoShowReportsPage /> },
               { path: 'coordinator/no-show-reports/:id', element: <CoordinatorNoShowReportPage /> },
+              { path: 'coordinator/flags', element: <CoordinatorFlagsPage /> },
+              { path: 'coordinator/users/:id', element: <CoordinatorUserPage /> },
             ],
           },
         ],

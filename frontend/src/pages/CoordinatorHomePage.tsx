@@ -17,6 +17,9 @@ export function CoordinatorHomePage() {
           <Link to="/coordinator/no-show-reports">No-show reports</Link>: confirm or reject reports that someone missed a session.
         </li>
         <li>
+          <Link to="/coordinator/flags">Flagged accounts</Link>: review repeated violations and suspend or reinstate accounts.
+        </li>
+        <li>
           <Link to="/coordinator/tutors">Tutors</Link>: activity, schedules and feedback of each tutor; cancel sessions for policy
           reasons.
         </li>
