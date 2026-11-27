@@ -8,6 +8,8 @@ export const E2E = {
   baseURL: process.env.E2E_BASE_URL ?? 'http://localhost:5173',
   databaseURL: process.env.E2E_DATABASE_URL ?? '',
   emailDomain: process.env.E2E_EMAIL_DOMAIN ?? 'example.test',
+  /** Set only when the API runs with OIDC_ENABLED=true, e.g. http://localhost:8180/realms/tutti-demo (#68). */
+  oidcIssuer: process.env.E2E_OIDC_ISSUER ?? '',
 };
 
 /** A new address for every run, so the journeys can be repeated on the same database. */

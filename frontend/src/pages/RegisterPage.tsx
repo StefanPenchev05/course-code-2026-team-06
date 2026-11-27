@@ -1,10 +1,21 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, Navigate, useNavigate } from 'react-router';
 import { useAuth } from '../features/auth/AuthContext';
+import { devPasswordLogin } from '../features/auth/devLogin';
 import { RegisterForm } from '../features/auth/RegisterForm';
 import { Alert } from '../shared/ui';
 
+/**
+ * With university sign-in (#68) there is nothing to register in a release
+ * build, so /register just opens the login page. Written as one expression so
+ * `vite build` (DEV = false) leaves the test-account form out of the bundle.
+ */
 export function RegisterPage() {
+  return import.meta.env.DEV && devPasswordLogin() ? <TestAccountRegistration /> : <Navigate to="/login" replace />;
+}
+
+/** DEVELOPMENT ONLY: create a local test account with a Tutti password (see devLogin.ts). */
+function TestAccountRegistration() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [needsLogin, setNeedsLogin] = useState(false);
@@ -37,7 +48,10 @@ export function RegisterPage() {
   return (
     <section className="page page--narrow">
       <h1>Create an account</h1>
-      <p>For students of the university. A coordinator from your faculty approves new accounts.</p>
+      <p>
+        Development test accounts only. Real users sign in with their University of Luxembourg account and don't register
+        here. A coordinator from the test account's faculty approves it.
+      </p>
       <RegisterForm onRegistered={handleRegistered} />
       <p>
         Already have an account? <Link to="/login">Log in</Link>

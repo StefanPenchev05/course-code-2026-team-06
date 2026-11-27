@@ -1,6 +1,8 @@
-import { Navigate, Outlet, useLocation } from 'react-router';
+import { useEffect } from 'react';
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../features/auth/AuthContext';
 import { safeRedirect } from '../features/auth/redirect';
+import { takeReturnPath } from '../features/auth/sso';
 import { hasRole, type Role } from '../features/auth/types';
 import { Alert, Button, PageLoader } from '../shared/ui';
 
@@ -20,10 +22,27 @@ function ServerUnavailable() {
   );
 }
 
+/**
+ * After the university sign-in the API always opens a fixed page (OIDC_POST_LOGIN_PATH, "/").
+ * If the user had wanted another page, open it now, replacing the history entry so
+ * Back doesn't bounce through the landing page. The path was checked by safePath().
+ */
+function useReturnAfterUniversitySignIn(authenticated: boolean) {
+  const navigate = useNavigate();
+  const { pathname, search } = useLocation();
+
+  useEffect(() => {
+    if (!authenticated) return;
+    const returnTo = takeReturnPath();
+    if (returnTo && returnTo !== pathname + search) navigate(returnTo, { replace: true });
+  }, [authenticated, navigate, pathname, search]);
+}
+
 /** Pages only for logged-in users. Others are sent to /login and come back afterwards. */
 export function RequireAuth() {
   const { state } = useAuth();
   const location = useLocation();
+  useReturnAfterUniversitySignIn(state.status === 'authenticated');
 
   if (state.status === 'loading') return <PageLoader label="Checking your session…" />;
   if (state.status === 'unavailable') return <ServerUnavailable />;

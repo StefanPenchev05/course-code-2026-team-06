@@ -58,6 +58,11 @@ free time" without depending on screens that don't exist yet.
 | `E2E_DATABASE_URL` | (required) | The database the API uses, for provisioning test data |
 | `E2E_BASE_URL` | `http://localhost:5173` | Where the frontend runs; must equal the API's `PUBLIC_ORIGIN` |
 | `E2E_EMAIL_DOMAIN` | `example.test` | A domain listed in the API's `UNIVERSITY_EMAIL_DOMAINS` |
+| `E2E_OIDC_ISSUER` | (empty) | Only if the API runs with `OIDC_ENABLED=true`: its issuer, e.g. `http://localhost:8180/realms/tutti-demo` (#68) |
+
+The journeys log in through the **development test-account form** on `/login` (legacy password
+login). Release builds don't have that form; they only offer "Sign in with University of
+Luxembourg" (#68, see `frontend/README.md` section 10).
 
 ## Journeys covered (issue #28)
 
@@ -183,6 +188,22 @@ and other browser engines are not exercised here.
   the form says "This time is no longer free" (never who took it), keeps the typed text and can't be
   sent, and the time leaves the list. When that booking is cancelled the time is free again. When
   the tutor removes it, it disappears for the student; the tutor's own "Removed." stays. No reloads.
+  
+## Journeys covered (issue #68, university sign-in)
+
+`sso.spec.ts`:
+
+- A crafted `/login?next=…&redirect_uri=…` link: the button calls only the fixed
+  `/api/v1/auth/oidc/login`, without any query. With OIDC switched off (the default), the page says
+  so and stays in the app. With `E2E_OIDC_ISSUER` set, the browser goes to that issuer's
+  authorization page with `response_type=code`, S256 PKCE and the callback on this origin.
+- Log in → open another page → log out: the page explains that the university account stays signed
+  in, the old cookie gets a real 401 from `/auth/me`, and Back shows the login page, not the
+  protected page.
+
+Not covered: a complete Keycloak login. That needs an account connected to a synthetic Keycloak user
+(trusted setup, see `frontend/README.md` section 10) and is covered on the API side by
+`backend/tests/integration/test_oidc_keycloak.py`.
 
 ## Accessibility and mobile checks (issue #59)
 

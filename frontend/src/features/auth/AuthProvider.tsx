@@ -54,12 +54,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const onVisible = () => {
       if (document.visibilityState === 'visible') void refresh();
     };
-    document.addEventListener('visibilitychange', onVisible);
-    return () => {
-      onUnauthorized(null);
-      onForbidden(null);
-      document.removeEventListener('visibilitychange', onVisible);
-    };
+        // Back from the university sign-in page can restore an old copy of the page: re-check the session.
+        const onPageShow = (event: PageTransitionEvent) => {
+          if (event.persisted) void refresh();
+        };
+        document.addEventListener('visibilitychange', onVisible);
+        window.addEventListener('pageshow', onPageShow);
+        return () => {
+          onUnauthorized(null);
+          onForbidden(null);
+          document.removeEventListener('visibilitychange', onVisible);
+          window.removeEventListener('pageshow', onPageShow);
+        };
   }, [refresh]);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -75,8 +81,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Already logged out on the server is fine; anything else still ends the local session.
       if (!(error instanceof ApiError)) throw error;
     } finally {
-      // Logging out on purpose: no "session ended" notice.
-      setState({ status: 'anonymous', user: null });
+      // Logging out on purpose: no "session ended" warning, but the login page
+      // explains that this doesn't sign the user out of the university account.
+      setState({ status: 'anonymous', user: null, ended: 'signed-out' });
     }
   }, []);
 

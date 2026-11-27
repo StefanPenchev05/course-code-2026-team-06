@@ -4,6 +4,7 @@ import { useAuth } from '../features/auth/AuthContext';
 import { hasRole } from '../features/auth/types';
 import { Button } from '../shared/ui';
 import { RealtimeNotice } from './RealtimeNotice';
+import { devPasswordLogin } from '../features/auth/devLogin';
 
 export function AppLayout() {
   const { user, logout } = useAuth();
@@ -58,7 +59,8 @@ export function AppLayout() {
           ) : (
             <>
               <NavLink to="/login">Log in</NavLink>
-              <NavLink to="/register">Register</NavLink>
+              {/* Test accounts only; release builds have university sign-in and nothing to register (#68). */}
+              {import.meta.env.DEV && devPasswordLogin() && <NavLink to="/register">Register</NavLink>}
             </>
           )}
         </nav>

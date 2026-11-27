@@ -1,8 +1,9 @@
 import { api } from '../../shared/api/client';
 import type { CurrentUser, RegistrationInput, StudentDetails, VerificationCreated } from './types';
 
-// All authentication calls live here so the planned switch to Uni.lu SSO (#68)
-// only touches this folder.
+// All authentication calls live here. Real users sign in with their university
+// account (sso.ts, #68). login and register are the legacy password endpoints,
+// used only by the development test-account forms (devLogin.ts).
 export const authApi = {
   me: () => api.get<CurrentUser>('/auth/me'),
   login: (email: string, password: string) => api.post<CurrentUser>('/auth/login', { email, password }),
